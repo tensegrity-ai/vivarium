@@ -110,6 +110,10 @@ refactor: extract prompt assembly into context.py
 docs: add sprint 0 plan
 ```
 
+## Python
+
+Use `uv` for all Python needs — packages, venvs, running scripts.
+
 ## Conventions
 
 - The bootstrap is the agent's interface to the LLM. Keep it boring.
