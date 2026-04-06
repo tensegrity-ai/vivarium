@@ -92,6 +92,12 @@ vivarium/
 └── README.md
 ```
 
+## Environment
+
+- `ANTHROPIC_API_KEY` — available in env, used by the bootstrap inside the Sprite
+- `FLY_API_TOKEN` — available in env, used by the keeper and `fly` CLI
+- `fly` CLI is installed and authenticated
+
 ## Development Workflow
 
 1. Work on bootstrap and keeper independently — they only interact through files and the Sprites API.
