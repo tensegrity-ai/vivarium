@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/py-compile.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
