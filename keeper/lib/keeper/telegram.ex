@@ -16,6 +16,11 @@ defmodule Keeper.Telegram do
     chats: %{}
   ]
 
+  @impl true
+  def format_status(_reason, [_pdict, state]) do
+    %{state | token: "***"}
+  end
+
   # -- Client API --
 
   def start_link(opts) do
@@ -72,7 +77,7 @@ defmodule Keeper.Telegram do
   end
 
   defp poll_updates(state) do
-    params = %{offset: state.offset, timeout: 30, allowed_updates: ["message"]}
+    params = %{offset: state.offset, timeout: 30, allowed_updates: Jason.encode!(["message"])}
 
     case api_get(state.token, "getUpdates", params) do
       {:ok, %{"ok" => true, "result" => updates}} when updates != [] ->
