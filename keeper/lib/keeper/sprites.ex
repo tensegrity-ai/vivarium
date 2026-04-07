@@ -152,7 +152,10 @@ defmodule Keeper.Sprites do
   defp client do
     Req.new(
       base_url: @base_url,
-      headers: [{"authorization", "Bearer #{token()}"}]
+      headers: [{"authorization", "Bearer #{token()}"}],
+      retry: :transient,
+      max_retries: 3,
+      retry_delay: fn attempt -> attempt * 1_000 end
     )
   end
 
