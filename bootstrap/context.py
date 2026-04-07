@@ -90,7 +90,13 @@ summary, actions, files_changed, topics, open_threads, wake_hint, breath_type)
 (skip if first breath)
 3. Write a new /vivarium/context/handoff.md — a letter to your future self
 4. Write your outbox message to /vivarium/outbox/{timestamp}.msg (YAML with \
-type, timestamp, to, channel, content fields)"""
+type, timestamp, to, channel, content fields)
+
+Outbox type values:
+- "response" — task complete, message for the human
+- "continuing" — task not done, you need another breath (keeper will re-wake you)
+- "request" — you need something from the human before continuing
+- "silent" — routine work done, nothing to report"""
 
 
 def _read_optional(path: str) -> str | None:

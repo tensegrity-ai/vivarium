@@ -97,9 +97,11 @@ def main():
                     "(~80% context used). Can you complete your current task "
                     "in the remaining context, or should you write a handoff "
                     "for the next breath?\n\n"
-                    "Respond with CONTINUING if you can finish, or "
-                    "HANDING_OFF if you need another breath. If handing off, "
-                    "write your continuation handoff and outbox now."
+                    "If you can finish: say CONTINUING and keep working.\n"
+                    "If you need another breath: say HANDING_OFF, then "
+                    "write your continuation handoff (handoff.md) and "
+                    'outbox with type: "continuing". The keeper will '
+                    "checkpoint and re-wake you immediately."
                 ),
             })
             negotiation_sent = True
