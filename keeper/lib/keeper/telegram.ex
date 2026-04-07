@@ -125,6 +125,7 @@ defmodule Keeper.Telegram do
       "history" -> cmd_history(chat_id, state)
       "diff" -> cmd_diff(chat_id, state)
       "restore" -> cmd_restore(args, chat_id, state)
+      "destroy" -> cmd_destroy(args, chat_id, state)
       "help" -> cmd_help(chat_id, state)
       _ -> send_and_return(state, chat_id, "Unknown command: /#{command}\nTry /help")
     end
@@ -307,11 +308,44 @@ defmodule Keeper.Telegram do
     end
   end
 
+  defp cmd_destroy(args, chat_id, state) do
+    name = String.trim(args)
+
+    # Default to active terrarium if no name given
+    name =
+      if name == "" do
+        state.chats[chat_id]
+      else
+        name
+      end
+
+    if is_nil(name) do
+      send_and_return(state, chat_id, "Usage: /destroy <name>")
+    else
+      case Keeper.destroy(name) do
+        {:ok, _} ->
+          # Clear from active if it was active
+          state =
+            if state.chats[chat_id] == name do
+              put_in(state.chats[chat_id], nil)
+            else
+              state
+            end
+
+          send_and_return(state, chat_id, "Destroyed #{name}")
+
+        {:error, reason} ->
+          send_and_return(state, chat_id, "Error: #{inspect(reason)}")
+      end
+    end
+  end
+
   defp cmd_help(chat_id, state) do
     msg = """
     *Vivarium Bot*
 
     /create <name> — create a new terrarium
+    /destroy <name> — destroy a terrarium
     /use <name> — set active terrarium for this chat
     /list — list running terrariums
     /status — show terrarium status

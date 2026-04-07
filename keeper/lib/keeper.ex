@@ -31,6 +31,16 @@ defmodule Keeper do
     Git.diff(name, from_ref, to_ref)
   end
 
+  def destroy(name) do
+    # Stop the GenServer, then destroy the Sprite
+    case GenServer.whereis(Terrarium.via(name)) do
+      nil -> :ok
+      pid -> DynamicSupervisor.terminate_child(Keeper.TerrariumSupervisor, pid)
+    end
+
+    Keeper.Sprites.destroy(name)
+  end
+
   def status(name) do
     Terrarium.status(name)
   end

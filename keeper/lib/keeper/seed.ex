@@ -3,9 +3,21 @@ defmodule Keeper.Seed do
 
   alias Keeper.{Sprites, Config, Git}
 
-  @bootstrap_dir Path.expand("../../../bootstrap", __DIR__)
-  @soul_path Path.expand("../../../seed/soul.md", __DIR__)
-  @bootstrap_files ~w(bootstrap.py context.py tools.py requirements.txt)
+  # Embed files at compile time so they're available in releases
+  @soul_content File.read!(Path.expand("../../../seed/soul.md", __DIR__))
+  @bootstrap_contents %{
+    "bootstrap.py" => File.read!(Path.expand("../../../bootstrap/bootstrap.py", __DIR__)),
+    "context.py" => File.read!(Path.expand("../../../bootstrap/context.py", __DIR__)),
+    "tools.py" => File.read!(Path.expand("../../../bootstrap/tools.py", __DIR__)),
+    "requirements.txt" => File.read!(Path.expand("../../../bootstrap/requirements.txt", __DIR__))
+  }
+
+  # Recompile this module when these files change
+  @external_resource Path.expand("../../../seed/soul.md", __DIR__)
+  @external_resource Path.expand("../../../bootstrap/bootstrap.py", __DIR__)
+  @external_resource Path.expand("../../../bootstrap/context.py", __DIR__)
+  @external_resource Path.expand("../../../bootstrap/tools.py", __DIR__)
+  @external_resource Path.expand("../../../bootstrap/requirements.txt", __DIR__)
 
   def create(name, config \\ Config.new()) do
     with {:ok, _} <- Sprites.create(name),
@@ -32,18 +44,14 @@ defmodule Keeper.Seed do
   end
 
   defp write_soul(name) do
-    content = File.read!(@soul_path)
-
-    case Sprites.write_file(name, "/vivarium/soul.md", content) do
+    case Sprites.write_file(name, "/vivarium/soul.md", @soul_content) do
       {:ok, _} -> :ok
       error -> error
     end
   end
 
   defp write_bootstrap(name) do
-    Enum.reduce_while(@bootstrap_files, :ok, fn file, :ok ->
-      content = File.read!(Path.join(@bootstrap_dir, file))
-
+    Enum.reduce_while(@bootstrap_contents, :ok, fn {file, content}, :ok ->
       case Sprites.write_file(name, "/vivarium/bootstrap/#{file}", content) do
         {:ok, _} -> {:cont, :ok}
         error -> {:halt, error}

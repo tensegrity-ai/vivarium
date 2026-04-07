@@ -397,5 +397,5 @@ defmodule Keeper.Terrarium do
 
   # -- Registry --
 
-  defp via(name), do: {:via, Registry, {Keeper.Registry, name}}
+  def via(name), do: {:via, Registry, {Keeper.Registry, name}}
 end
