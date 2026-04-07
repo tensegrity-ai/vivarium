@@ -15,6 +15,14 @@ defmodule Keeper.Sprites do
     end
   end
 
+  def status(name) do
+    case get("/v1/sprites/#{name}") do
+      {:ok, %{status: 200, body: %{"status" => status}}} -> {:ok, status}
+      {:ok, %{status: status, body: body}} -> {:error, "HTTP #{status}: #{body_string(body)}"}
+      {:error, reason} -> {:error, inspect(reason)}
+    end
+  end
+
   def list do
     case get("/v1/sprites") do
       {:ok, %{status: 200, body: %{"sprites" => sprites}}} ->

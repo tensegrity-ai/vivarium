@@ -398,7 +398,7 @@ defmodule Keeper.Telegram do
 
   defp handle_message(text, chat_id, state) do
     with_terrarium(state, chat_id, fn name ->
-      send_message(state.token, chat_id, "💭 Waking `#{name}`...")
+      if cold?(name), do: send_message(state.token, chat_id, "Waking `#{name}`...")
 
       bot_pid = self()
 
@@ -420,6 +420,13 @@ defmodule Keeper.Telegram do
 
       name ->
         fun.(name)
+    end
+  end
+
+  defp cold?(name) do
+    case Keeper.Sprites.status(name) do
+      {:ok, "cold"} -> true
+      _ -> false
     end
   end
 
