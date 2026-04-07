@@ -164,6 +164,8 @@ defmodule Keeper.Telegram do
         name -> send_and_return(state, chat_id, "Active: `#{name}`")
       end
     else
+      # Start a GenServer if one isn't already running for this sprite
+      ensure_terrarium_started(name)
       state = put_in(state.chats[chat_id], name)
       send_and_return(state, chat_id, "Active terrarium set to `#{name}`")
     end
@@ -389,6 +391,19 @@ defmodule Keeper.Telegram do
 
       name ->
         fun.(name)
+    end
+  end
+
+  defp ensure_terrarium_started(name) do
+    case GenServer.whereis(Keeper.Terrarium.via(name)) do
+      nil ->
+        DynamicSupervisor.start_child(
+          Keeper.TerrariumSupervisor,
+          {Keeper.Terrarium, name}
+        )
+
+      _pid ->
+        {:ok, :already_running}
     end
   end
 
