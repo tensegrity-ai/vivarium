@@ -1,6 +1,9 @@
 app = "vivarium-keeper"
 primary_region = "sjc"
 
+[deploy]
+  strategy = "immediate"
+
 [build]
   dockerfile = "keeper/Dockerfile"
 

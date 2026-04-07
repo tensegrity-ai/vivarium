@@ -4,7 +4,7 @@ defmodule Keeper.Terrarium do
 
   require Logger
 
-  alias Keeper.{Sprites, Seed, Wake, Budget, Config, Git}
+  alias Keeper.{Sprites, Seed, Wake, Budget, Config, Git, Gallery, Telegram}
 
   @max_continuations 5
 
@@ -166,6 +166,7 @@ defmodule Keeper.Terrarium do
              ) do
           {:ok, outbox, state} ->
             state = handle_outbox_requests(state, outbox)
+            Telegram.notify(state.name, outbox)
             {:noreply, %{state | status: :idle}}
 
           {:runaway, state} ->
@@ -198,6 +199,7 @@ defmodule Keeper.Terrarium do
       case breathe_loop(state, prompt, opts) do
         {:ok, outbox, state} ->
           state = handle_outbox_requests(state, outbox)
+          Telegram.notify(state.name, outbox)
           {:noreply, %{state | status: :idle}}
 
         {:runaway, state} ->
@@ -230,6 +232,8 @@ defmodule Keeper.Terrarium do
 
         case do_git_commit(state, checkpoint_attrs) do
           {:ok, _meta} ->
+            Gallery.maybe_sync(state.name)
+
             if state.consecutive_continuations >= @max_continuations do
               {:runaway, state}
             else
@@ -269,6 +273,8 @@ defmodule Keeper.Terrarium do
             {:ok, _meta} -> state
             _ -> state
           end
+
+        Gallery.maybe_sync(state.name)
 
         {:ok, outbox, state}
 

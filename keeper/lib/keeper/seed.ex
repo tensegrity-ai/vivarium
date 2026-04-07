@@ -36,7 +36,8 @@ defmodule Keeper.Seed do
   defp create_dirs(name) do
     dirs =
       ~w(/vivarium/inbox /vivarium/outbox /vivarium/context/handoff_log
-         /vivarium/tools /vivarium/data /vivarium/.keeper /vivarium/bootstrap)
+         /vivarium/tools /vivarium/data /vivarium/.keeper /vivarium/bootstrap
+         /vivarium/public)
       |> Enum.join(" ")
 
     case Sprites.exec(name, "mkdir -p #{dirs}") do

@@ -19,6 +19,7 @@ Keeper (Elixir/OTP, runs outside terrarium)
   - Budget enforcement: tokens, breaths, compute
   - Credential vault: injects short-lived tokens
   - Scheduler: heartbeats, agent-requested wakes
+  - Gallery sync: pushes /vivarium/public/ to static server after each breath
   ↓ Sprites API (exec, fs read/write) + git inside /vivarium/
 Terrarium (Fly.io Sprite VM)
   - Bootstrap (Rust static binary): reads handoff → calls LLM → tool loop → writes handoff
@@ -94,8 +95,13 @@ vivarium/
 │   │   ├── keeper/config.ex           # Per-terrarium configuration
 │   │   ├── keeper/checkpoint_meta.ex  # Git commit metadata struct
 │   │   ├── keeper/telegram.ex         # Telegram bot (polling + commands)
+│   │   ├── keeper/gallery.ex          # Gallery sync (public/ → static server)
 │   │   └── mix/tasks/sprint0.ex       # Sprint 0 demo task
 │   └── test/
+├── gallery/                   # Static file server for agent galleries
+│   ├── main.go                # Go binary: serves files + accepts tar uploads
+│   ├── Dockerfile
+│   └── fly.toml               # Separate Fly app (vivarium-gallery)
 ├── seed/
 │   ├── soul.md                # Default agent soul document
 │   └── AGENTS.md              # Agent operational knowledge (seeded into terrarium)
@@ -106,6 +112,8 @@ vivarium/
 - `ANTHROPIC_API_KEY` — available in env, injected by keeper into Sprite at wake time
 - `SPRITES_TOKEN` — required; keeper uses Sprites HTTP API directly.
 - `TELEGRAM_BOT_TOKEN` — optional; when set, starts the Telegram bot on keeper startup.
+- `GALLERY_URL` — optional; gallery server URL (e.g. `https://vivarium-gallery.fly.dev`). Enables gallery sync.
+- `GALLERY_TOKEN` — required if GALLERY_URL is set; Bearer token for gallery upload API.
 - `sprite` CLI available for manual operations (org: `tensegrity-systems`)
 
 ## Development Workflow

@@ -9,6 +9,7 @@ defmodule Keeper.Telegram do
 
   @poll_interval_ms 1_000
   @api_base "https://api.telegram.org/bot"
+  @chats_path "telegram_chats.json"
 
   defstruct [
     :token,
@@ -30,13 +31,22 @@ defmodule Keeper.Telegram do
     GenServer.start_link(__MODULE__, token, name: __MODULE__)
   end
 
+  @doc "Send a notification to the chat associated with a terrarium. Called by Terrarium for non-interactive breaths."
+  def notify(name, outbox) do
+    case GenServer.whereis(__MODULE__) do
+      nil -> :ok
+      _pid -> GenServer.cast(__MODULE__, {:notify, name, outbox})
+    end
+  end
+
   # -- Server --
 
   @impl true
   def init(token) do
     Logger.info("[telegram] bot starting")
+    chats = load_chats()
     schedule_poll(0)
-    {:ok, %__MODULE__{token: token}}
+    {:ok, %__MODULE__{token: token, chats: chats}}
   end
 
   @impl true
@@ -71,6 +81,33 @@ defmodule Keeper.Telegram do
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
     {:noreply, state}
   end
+
+  @impl true
+  def handle_cast({:notify, name, %{raw: raw, type: type}}, state) do
+    case chat_for_terrarium(state, name) do
+      nil ->
+        Logger.debug("[telegram] no chat for #{name}, dropping notification")
+        {:noreply, state}
+
+      chat_id ->
+        unless type == :silent do
+          content = parse_outbox_content(raw)
+
+          label =
+            case type do
+              :continuing -> "🔄 _Continuing..._\n\n"
+              :request -> "📨 *#{name}* needs something:\n\n"
+              _ -> "💬 *#{name}*:\n\n"
+            end
+
+          send_message(state.token, chat_id, label <> content)
+        end
+
+        {:noreply, state}
+    end
+  end
+
+  def handle_cast({:notify, _name, _outbox}, state), do: {:noreply, state}
 
   # -- Polling --
 
@@ -143,6 +180,7 @@ defmodule Keeper.Telegram do
       case Keeper.create(name) do
         :ok ->
           state = put_in(state.chats[chat_id], name)
+          save_chats(state.chats)
 
           send_and_return(
             state,
@@ -168,6 +206,7 @@ defmodule Keeper.Telegram do
       # Start a GenServer if one isn't already running for this sprite
       ensure_terrarium_started(name)
       state = put_in(state.chats[chat_id], name)
+      save_chats(state.chats)
       send_and_return(state, chat_id, "Active terrarium set to `#{name}`")
     end
   end
@@ -338,6 +377,7 @@ defmodule Keeper.Telegram do
               state
             end
 
+          save_chats(state.chats)
           send_and_return(state, chat_id, "Destroyed #{name}")
 
         {:error, reason} ->
@@ -423,6 +463,12 @@ defmodule Keeper.Telegram do
     end
   end
 
+  defp chat_for_terrarium(state, name) do
+    Enum.find_value(state.chats, fn {chat_id, terrarium_name} ->
+      if terrarium_name == name, do: chat_id
+    end)
+  end
+
   defp cold?(name) do
     case Keeper.Sprites.status(name) do
       {:ok, "cold"} -> true
@@ -466,6 +512,30 @@ defmodule Keeper.Telegram do
       {:ok, %{"content" => content}} when is_binary(content) -> String.trim(content)
       _ -> raw
     end
+  end
+
+  # -- Chat persistence --
+
+  defp load_chats do
+    case File.read(@chats_path) do
+      {:ok, data} ->
+        case Jason.decode(data) do
+          {:ok, map} ->
+            # JSON keys are strings; convert chat_id keys back to integers
+            Map.new(map, fn {k, v} -> {String.to_integer(k), v} end)
+
+          _ ->
+            %{}
+        end
+
+      {:error, _} ->
+        %{}
+    end
+  end
+
+  defp save_chats(chats) do
+    json = Jason.encode!(chats, pretty: true)
+    File.write(@chats_path, json)
   end
 
   # -- Telegram API --

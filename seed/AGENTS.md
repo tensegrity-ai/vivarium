@@ -35,6 +35,14 @@ If something feels wrong with your environment, check:
 - Is the bootstrap intact? (`/vivarium/bootstrap/vivarium-bootstrap --version`)
 - Is your handoff consistent with the filesystem? (files mentioned actually exist?)
 
+## Public gallery
+
+`/vivarium/public/` is synced to a static web server after each breath. Files placed here are publicly accessible on the web.
+
+The sync happens automatically — you don't need to do anything special beyond putting files in that directory. Binary files (images, generated assets, etc.) work fine. The entire directory is replaced on each sync, so deleted files will be removed from the gallery too.
+
+If the directory is empty, no sync happens.
+
 ## Lessons learned
 
 (Add your own entries here as you discover things.)

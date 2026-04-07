@@ -38,5 +38,6 @@ ENV LC_ALL=en_US.UTF-8
 WORKDIR /app
 
 COPY --from=build /app/_build/prod/rel/keeper ./
+COPY --from=build /bootstrap/target/x86_64-unknown-linux-musl/release/vivarium-bootstrap /bootstrap/target/x86_64-unknown-linux-musl/release/vivarium-bootstrap
 
 CMD ["/app/bin/keeper", "start"]

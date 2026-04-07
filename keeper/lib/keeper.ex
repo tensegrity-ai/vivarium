@@ -6,8 +6,10 @@ defmodule Keeper do
   def create(name, opts \\ []) do
     config = Config.new(opts)
 
-    with {:ok, _pid} <- start_terrarium(name, config) do
-      Terrarium.create(name)
+    case start_terrarium(name, config) do
+      {:ok, _pid} -> Terrarium.create(name)
+      {:error, {:already_started, _pid}} -> Terrarium.create(name)
+      error -> error
     end
   end
 
