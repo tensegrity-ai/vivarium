@@ -11,15 +11,15 @@ Read `DESIGN.md` for the full philosophy and architecture. Read the `PLANS/` dir
 ## Architecture
 
 ```
-Human (Signal, email, CLI)
+Human (Telegram)
   ↓
 Keeper (Elixir/OTP, runs outside terrarium)
-  - Lifecycle: start, stop, checkpoint, restore, branch
-  - Message routing: human ↔ agent
+  - Telegram bot: slash commands + message routing
+  - Lifecycle: start, stop, checkpoint (git), restore, branch
   - Budget enforcement: tokens, breaths, compute
   - Credential vault: injects short-lived tokens
   - Scheduler: heartbeats, agent-requested wakes
-  ↓ Sprites API (exec, checkpoint, restore)
+  ↓ Sprites API (exec, fs read/write) + git inside /vivarium/
 Terrarium (Fly.io Sprite VM)
   - Bootstrap (Python): reads handoff → calls LLM → tool loop → writes handoff
   - Agent tools: bash, read_file, write_file, edit_file
@@ -91,6 +91,7 @@ vivarium/
 │   │   ├── keeper/budget.ex           # Budget tracking + enforcement
 │   │   ├── keeper/config.ex           # Per-terrarium configuration
 │   │   ├── keeper/checkpoint_meta.ex  # Git commit metadata struct
+│   │   ├── keeper/telegram.ex         # Telegram bot (polling + commands)
 │   │   └── mix/tasks/sprint0.ex       # Sprint 0 demo task
 │   └── test/
 ├── seed/
@@ -101,6 +102,7 @@ vivarium/
 
 - `ANTHROPIC_API_KEY` — available in env, injected by keeper into Sprite at wake time
 - `SPRITES_TOKEN` — optional; when set, keeper uses Sprites HTTP API directly. When absent, falls back to `sprite` CLI.
+- `TELEGRAM_BOT_TOKEN` — optional; when set, starts the Telegram bot on keeper startup.
 - `sprite` CLI is installed and authenticated (org: `tensegrity-systems`)
 
 ## Development Workflow
