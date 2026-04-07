@@ -8,6 +8,11 @@
             "type": "command",
             "command": ".claude/hooks/py-compile.sh",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/ex-compile.sh",
+            "timeout": 30
           }
         ]
       }
