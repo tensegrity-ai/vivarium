@@ -59,7 +59,7 @@ Application
 | `Keeper` | Top-level API — delegates to Terrarium GenServers |
 | `Keeper.Terrarium` | GenServer per terrarium — lifecycle, breath loop, heartbeat, budget |
 | `Keeper.Wake` | Executes one breath — inbox writing, bootstrap exec, outbox parsing |
-| `Keeper.Sprites` | Wraps `sprite` CLI — create, exec, checkpoint, restore |
+| `Keeper.Sprites` | Sprites HTTP API client — create, exec, checkpoint, restore |
 | `Keeper.Seed` | Creates new terrarium — dirs, soul, bootstrap, config, deps |
 | `Keeper.Budget` | Tracks tokens/breaths/compute, enforces daily limits |
 | `Keeper.Config` | Per-terrarium configuration struct |

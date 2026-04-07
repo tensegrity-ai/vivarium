@@ -104,9 +104,9 @@ vivarium/
 ## Environment
 
 - `ANTHROPIC_API_KEY` — available in env, injected by keeper into Sprite at wake time
-- `SPRITES_TOKEN` — optional; when set, keeper uses Sprites HTTP API directly. When absent, falls back to `sprite` CLI.
+- `SPRITES_TOKEN` — required; keeper uses Sprites HTTP API directly.
 - `TELEGRAM_BOT_TOKEN` — optional; when set, starts the Telegram bot on keeper startup.
-- `sprite` CLI is installed and authenticated (org: `tensegrity-systems`)
+- `sprite` CLI available for manual operations (org: `tensegrity-systems`)
 
 ## Development Workflow
 
