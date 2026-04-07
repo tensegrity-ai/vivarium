@@ -13,10 +13,10 @@ defmodule Keeper.Config do
 
   @doc "Build a Config from a keyword list, applying defaults."
   def new(opts \\ []) do
-    config = struct(__MODULE__, opts)
+    {budget_overrides, rest} = Keyword.pop(opts, :budget)
+    config = struct(__MODULE__, rest)
 
-    # Merge budget overrides
-    case Keyword.get(opts, :budget) do
+    case budget_overrides do
       nil -> config
       overrides -> %{config | budget: Map.merge(config.budget, Map.new(overrides))}
     end
