@@ -18,9 +18,10 @@ defmodule Keeper.Wake do
     unix_ts = System.os_time(:second)
 
     with {:ok, _} <- clear_inbox(name),
+         {:ok, _} <- clear_outbox(name),
          :ok <- maybe_write_budget_status(name, budget, budget_limits),
          {:ok, _} <- Sprites.write_file(name, "/vivarium/inbox/#{unix_ts}.msg", inbox_yaml),
-         {compute_ms, {:ok, _}} <- time_bootstrap(name, api_key) do
+         {compute_ms, {:ok, _}} <- run_bootstrap(name, api_key) do
       case read_and_parse_outbox(name) do
         {:ok, outbox} ->
           usage = read_usage(name)
@@ -118,13 +119,18 @@ defmodule Keeper.Wake do
     Sprites.exec(name, "rm -f /vivarium/inbox/*.msg")
   end
 
-  defp time_bootstrap(name, api_key) do
+  defp clear_outbox(name) do
+    Sprites.exec(name, "rm -f /vivarium/outbox/*.msg")
+  end
+
+  defp run_bootstrap(name, api_key) do
     start = System.monotonic_time(:millisecond)
 
     result =
       Sprites.exec(
         name,
-        "ANTHROPIC_API_KEY='#{api_key}' python3 /vivarium/bootstrap/bootstrap.py"
+        "python3 /vivarium/bootstrap/bootstrap.py",
+        env: [{"ANTHROPIC_API_KEY", api_key}]
       )
 
     elapsed = System.monotonic_time(:millisecond) - start

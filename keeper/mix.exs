@@ -22,6 +22,7 @@ defmodule Keeper.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:req, "~> 0.5"},
       {:yaml_elixir, "~> 2.9"},
       {:jason, "~> 1.4"}
     ]

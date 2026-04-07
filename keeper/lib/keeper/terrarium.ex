@@ -4,7 +4,7 @@ defmodule Keeper.Terrarium do
 
   require Logger
 
-  alias Keeper.{Sprites, Seed, Wake, Budget, Config}
+  alias Keeper.{Sprites, Seed, Wake, Budget, Config, CheckpointMeta}
 
   @max_continuations 5
 
@@ -12,6 +12,7 @@ defmodule Keeper.Terrarium do
     :name,
     :config,
     :budget,
+    :last_breath_at,
     status: :idle,
     breath_count: 0,
     checkpoint_history: [],
@@ -91,20 +92,17 @@ defmodule Keeper.Terrarium do
     end
   end
 
-  def handle_call(:checkpoint, _from, %{name: name} = state) do
-    case Sprites.checkpoint(name) do
-      {:ok, output} ->
-        entry = %{
-          output: output,
-          breath: state.breath_count,
-          timestamp: DateTime.utc_now()
-        }
+  def handle_call({:checkpoint, attrs}, _from, state) do
+    case do_checkpoint(state, attrs) do
+      {:ok, meta, state} -> {:reply, {:ok, meta}, state}
+      error -> {:reply, error, state}
+    end
+  end
 
-        state = %{state | checkpoint_history: [entry | state.checkpoint_history]}
-        {:reply, {:ok, output}, state}
-
-      error ->
-        {:reply, error, state}
+  def handle_call(:checkpoint, _from, state) do
+    case do_checkpoint(state, trigger: :message) do
+      {:ok, meta, state} -> {:reply, {:ok, meta}, state}
+      error -> {:reply, error, state}
     end
   end
 
@@ -114,33 +112,42 @@ defmodule Keeper.Terrarium do
 
   # -- Heartbeat and scheduled wakes --
 
+  @min_heartbeat_gap_ms :timer.seconds(60)
+
   @impl true
   def handle_info(:heartbeat, state) do
     state = %{state | budget: Budget.maybe_reset(state.budget)}
     state = maybe_schedule_heartbeat(state)
 
-    if Budget.exhausted?(state.budget, state.config.budget) do
-      Logger.info("[#{state.name}] heartbeat deferred — budget exhausted")
-      {:noreply, state}
-    else
-      Logger.info("[#{state.name}] heartbeat wake")
-      state = %{state | status: :breathing}
-      opts = inject_budget_opts([inbox_type: :heartbeat, from: "system", channel: "cron"], state)
+    cond do
+      too_soon_after_breath?(state) ->
+        Logger.debug("[#{state.name}] heartbeat skipped — breath completed recently")
+        {:noreply, state}
 
-      case breathe_loop(state, "Heartbeat check-in.", opts) do
-        {:ok, outbox, state} ->
-          state = handle_outbox_requests(state, outbox)
-          do_checkpoint(state)
-          {:noreply, %{state | status: :idle}}
+      Budget.exhausted?(state.budget, state.config.budget) ->
+        Logger.info("[#{state.name}] heartbeat deferred — budget exhausted")
+        {:noreply, state}
 
-        {:runaway, state} ->
-          Logger.warning("[#{state.name}] heartbeat runaway detected")
-          {:noreply, %{state | status: :idle}}
+      true ->
+        Logger.info("[#{state.name}] heartbeat wake")
+        state = %{state | status: :breathing}
 
-        {:error, reason, state} ->
-          Logger.error("[#{state.name}] heartbeat error: #{inspect(reason)}")
-          {:noreply, %{state | status: :idle}}
-      end
+        opts =
+          inject_budget_opts([inbox_type: :heartbeat, from: "system", channel: "cron"], state)
+
+        case breathe_loop(state, "Heartbeat check-in.", opts) do
+          {:ok, outbox, state} ->
+            state = handle_outbox_requests(state, outbox)
+            {:noreply, %{state | status: :idle}}
+
+          {:runaway, state} ->
+            Logger.warning("[#{state.name}] heartbeat runaway detected")
+            {:noreply, %{state | status: :idle}}
+
+          {:error, reason, state} ->
+            Logger.error("[#{state.name}] heartbeat error: #{inspect(reason)}")
+            {:noreply, %{state | status: :idle}}
+        end
     end
   end
 
@@ -163,7 +170,6 @@ defmodule Keeper.Terrarium do
       case breathe_loop(state, prompt, opts) do
         {:ok, outbox, state} ->
           state = handle_outbox_requests(state, outbox)
-          do_checkpoint(state)
           {:noreply, %{state | status: :idle}}
 
         {:runaway, state} ->
@@ -184,29 +190,86 @@ defmodule Keeper.Terrarium do
       {:ok, %{type: :continuing} = outbox} ->
         state = record_breath(state, outbox)
         state = %{state | consecutive_continuations: state.consecutive_continuations + 1}
-        do_checkpoint(state)
 
-        if state.consecutive_continuations >= @max_continuations do
-          {:runaway, state}
-        else
-          opts = Keyword.put(opts, :inbox_type, :continuation)
-          breathe_loop(state, "Continuation", opts)
+        checkpoint_attrs = [
+          trigger: :continuation,
+          breath_number: state.breath_count,
+          tokens_used: outbox |> Map.get(:usage, %{}) |> Map.get("total_tokens", 0),
+          compute_ms: Map.get(outbox, :compute_ms, 0),
+          outbox_type: :continuing,
+          outbox_summary: extract_summary(outbox)
+        ]
+
+        case do_checkpoint(state, checkpoint_attrs) do
+          {:ok, _meta, state} ->
+            if state.consecutive_continuations >= @max_continuations do
+              {:runaway, state}
+            else
+              opts = Keyword.put(opts, :inbox_type, :continuation)
+              breathe_loop(state, "Continuation", opts)
+            end
+
+          {:error, _} = err ->
+            # Checkpoint failed but breath succeeded — continue anyway
+            Logger.warning("[#{state.name}] continuation checkpoint failed: #{inspect(err)}")
+
+            if state.consecutive_continuations >= @max_continuations do
+              {:runaway, state}
+            else
+              opts = Keyword.put(opts, :inbox_type, :continuation)
+              breathe_loop(state, "Continuation", opts)
+            end
         end
 
       {:ok, outbox} ->
         state = record_breath(state, outbox)
         state = %{state | consecutive_continuations: 0}
+
+        trigger = Keyword.get(opts, :inbox_type, :message)
+
+        checkpoint_attrs = [
+          trigger: trigger,
+          breath_number: state.breath_count,
+          tokens_used: outbox |> Map.get(:usage, %{}) |> Map.get("total_tokens", 0),
+          compute_ms: Map.get(outbox, :compute_ms, 0),
+          outbox_type: Map.get(outbox, :type),
+          outbox_summary: extract_summary(outbox)
+        ]
+
+        state =
+          case do_checkpoint(state, checkpoint_attrs) do
+            {:ok, _meta, state} -> state
+            _ -> state
+          end
+
         {:ok, outbox, state}
 
       {:error, {:crash, reason, %{usage: usage, compute_ms: compute_ms}}} ->
-        do_checkpoint(state)
+        crash_attrs = [
+          trigger: :crash,
+          breath_number: state.breath_count,
+          tokens_used: Map.get(usage, "total_tokens", 0),
+          compute_ms: compute_ms
+        ]
+
+        state =
+          case do_checkpoint(state, crash_attrs) do
+            {:ok, _meta, state} -> state
+            _ -> state
+          end
+
         tokens = Map.get(usage, "total_tokens", 0)
         budget = Budget.record(state.budget, tokens, compute_ms)
         state = %{state | crash_recovery: true, budget: budget}
         {:error, {:crash, reason}, state}
 
       {:error, {:crash, reason}} ->
-        do_checkpoint(state)
+        state =
+          case do_checkpoint(state, trigger: :crash, breath_number: state.breath_count) do
+            {:ok, _meta, state} -> state
+            _ -> state
+          end
+
         state = %{state | crash_recovery: true}
         {:error, {:crash, reason}, state}
 
@@ -224,12 +287,23 @@ defmodule Keeper.Terrarium do
       state
       | breath_count: state.breath_count + 1,
         crash_recovery: false,
-        budget: budget
+        budget: budget,
+        last_breath_at: System.monotonic_time(:millisecond)
     }
   end
 
-  defp do_checkpoint(%{name: name}) do
-    Sprites.checkpoint(name)
+  defp do_checkpoint(state, attrs) do
+    attrs = Keyword.put_new(attrs, :breath_number, state.breath_count)
+
+    case Sprites.checkpoint(state.name) do
+      {:ok, result} ->
+        meta = CheckpointMeta.new(result, attrs)
+        state = %{state | checkpoint_history: [meta | state.checkpoint_history]}
+        {:ok, meta, state}
+
+      error ->
+        error
+    end
   end
 
   # -- Budget --
@@ -295,6 +369,26 @@ defmodule Keeper.Terrarium do
     Logger.debug("[#{state.name}] ignoring unknown request: #{inspect(req)}")
     state
   end
+
+  defp too_soon_after_breath?(%{last_breath_at: nil}), do: false
+
+  defp too_soon_after_breath?(%{last_breath_at: last}) do
+    System.monotonic_time(:millisecond) - last < @min_heartbeat_gap_ms
+  end
+
+  # -- Helpers --
+
+  defp extract_summary(%{raw: raw}) do
+    case YamlElixir.read_from_string(raw) do
+      {:ok, %{"content" => content}} when is_binary(content) ->
+        content |> String.split("\n") |> hd() |> String.slice(0..120)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_summary(_), do: nil
 
   # -- Registry --
 

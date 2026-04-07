@@ -1,55 +1,216 @@
 defmodule Keeper.Sprites do
   @moduledoc """
-  Wraps the `sprite` CLI for interacting with Fly.io Sprites.
-  Sprint 0: shell out to CLI. Upgrade to HTTP API later.
+  Client for the Sprites API. Uses HTTP when SPRITES_TOKEN is available,
+  falls back to the `sprite` CLI otherwise.
   """
 
-  @max_retries 2
-  @sprite_bin "sprite"
+  require Logger
 
-  defp org, do: Application.get_env(:keeper, :sprites_org, "tensegrity-systems")
+  @base_url "https://api.sprites.dev"
+  @sprite_bin "sprite"
+  @max_retries 2
+
+  # -- Public API --
 
   def create(name) do
-    run([@sprite_bin, "create", "-o", org(), name])
+    if http?() do
+      case post("/v1/sprites", json: %{name: name}) do
+        {:ok, %{status: status}} when status in [200, 201] -> {:ok, name}
+        {:ok, %{status: status, body: body}} -> {:error, "HTTP #{status}: #{body_string(body)}"}
+        {:error, reason} -> {:error, inspect(reason)}
+      end
+    else
+      cli(["create", "-o", org(), "--skip-console", name])
+    end
   end
 
-  def exec(name, command, _opts \\ []) do
-    run([@sprite_bin, "exec", "-s", name, "-o", org(), "--", "bash", "-c", command])
+  def exec(name, command, opts \\ []) do
+    if http?() do
+      env_params =
+        opts |> Keyword.get(:env, []) |> Enum.map(fn {k, v} -> {"env", "#{k}=#{v}"} end)
+
+      params = [{"cmd", "bash"}, {"cmd", "-c"}, {"cmd", command}] ++ env_params
+
+      case post("/v1/sprites/#{name}/exec", params: params, receive_timeout: 600_000) do
+        {:ok, %{status: 200, body: body}} -> {:ok, extract_exec_output(body)}
+        {:ok, %{status: status, body: body}} -> {:error, "HTTP #{status}: #{body_string(body)}"}
+        {:error, reason} -> {:error, inspect(reason)}
+      end
+    else
+      env = Keyword.get(opts, :env, [])
+      env_args = Enum.flat_map(env, fn {k, v} -> ["--env", "#{k}=#{v}"] end)
+      cli(["exec", "-s", name, "-o", org()] ++ env_args ++ ["--", "bash", "-c", command])
+    end
   end
 
-  def checkpoint(name) do
-    run([@sprite_bin, "checkpoint", "create", "-s", name, "-o", org()])
+  def checkpoint(name, opts \\ []) do
+    if http?() do
+      body =
+        case Keyword.get(opts, :comment) do
+          nil -> %{}
+          comment -> %{comment: comment}
+        end
+
+      case post("/v1/sprites/#{name}/checkpoint", json: body, receive_timeout: 120_000) do
+        {:ok, %{status: status, body: resp_body}} when status in [200, 201] ->
+          {:ok, parse_checkpoint_response(resp_body)}
+
+        {:ok, %{status: status, body: resp_body}} ->
+          {:error, "HTTP #{status}: #{body_string(resp_body)}"}
+
+        {:error, reason} ->
+          {:error, inspect(reason)}
+      end
+    else
+      cli(["checkpoint", "create", "-s", name, "-o", org()])
+    end
+  end
+
+  def list_checkpoints(name) do
+    if http?() do
+      case get("/v1/sprites/#{name}/checkpoints") do
+        {:ok, %{status: 200, body: body}} -> {:ok, body}
+        {:ok, %{status: status, body: body}} -> {:error, "HTTP #{status}: #{body_string(body)}"}
+        {:error, reason} -> {:error, inspect(reason)}
+      end
+    else
+      cli(["checkpoint", "list", "-s", name, "-o", org()])
+    end
   end
 
   def restore(name, version) do
-    run([@sprite_bin, "restore", version, "-s", name, "-o", org()])
+    if http?() do
+      case post("/v1/sprites/#{name}/checkpoints/#{version}/restore", receive_timeout: 120_000) do
+        {:ok, %{status: status}} when status in [200, 201] -> {:ok, "restored"}
+        {:ok, %{status: status, body: body}} -> {:error, "HTTP #{status}: #{body_string(body)}"}
+        {:error, reason} -> {:error, inspect(reason)}
+      end
+    else
+      cli(["restore", version, "-s", name, "-o", org()])
+    end
   end
 
   def destroy(name) do
-    run([@sprite_bin, "destroy", name, "-o", org(), "--force"])
+    if http?() do
+      case request(:delete, "/v1/sprites/#{name}") do
+        {:ok, %{status: status}} when status in [200, 204] -> {:ok, "destroyed"}
+        {:ok, %{status: status, body: body}} -> {:error, "HTTP #{status}: #{body_string(body)}"}
+        {:error, reason} -> {:error, inspect(reason)}
+      end
+    else
+      cli(["destroy", name, "-o", org(), "--force"])
+    end
   end
 
-  @doc "Write a file into the sprite. Uses base64 via exec to avoid quoting issues."
+  @doc "Write a file into the sprite via the filesystem API."
   def write_file(name, path, content) do
-    encoded = Base.encode64(content)
-    dir = Path.dirname(path)
-
-    exec(name, "mkdir -p #{dir} && echo '#{encoded}' | base64 -d > #{path}")
+    if http?() do
+      case request(:put, "/v1/sprites/#{name}/fs/write",
+             params: [{"path", path}, {"mkdir", "true"}],
+             body: content,
+             headers: [{"content-type", "application/octet-stream"}]
+           ) do
+        {:ok, %{status: status}} when status in [200, 201, 204] -> {:ok, "written"}
+        {:ok, %{status: status, body: body}} -> {:error, "HTTP #{status}: #{body_string(body)}"}
+        {:error, reason} -> {:error, inspect(reason)}
+      end
+    else
+      encoded = Base.encode64(content)
+      dir = Path.dirname(path)
+      exec(name, "mkdir -p #{dir} && echo '#{encoded}' | base64 -d > #{path}")
+    end
   end
 
-  @doc "Read a file from the sprite."
+  @doc "Read a file from the sprite via the filesystem API."
   def read_file(name, path) do
-    exec(name, "cat #{path}")
+    if http?() do
+      case get("/v1/sprites/#{name}/fs/read", params: [{"path", path}]) do
+        {:ok, %{status: 200, body: body}} when is_binary(body) -> {:ok, body}
+        {:ok, %{status: 200, body: body}} -> {:ok, body_string(body)}
+        {:ok, %{status: status, body: body}} -> {:error, "HTTP #{status}: #{body_string(body)}"}
+        {:error, reason} -> {:error, inspect(reason)}
+      end
+    else
+      exec(name, "cat #{path}")
+    end
   end
 
-  # -- internal --
+  # -- HTTP internals --
 
-  defp run(argv) do
-    [program | args] = argv
-    do_run(program, args, 0)
+  defp http? do
+    token() != nil
   end
 
-  defp do_run(program, args, attempt) do
+  defp token do
+    Application.get_env(:keeper, :sprites_token) || System.get_env("SPRITES_TOKEN")
+  end
+
+  defp org do
+    Application.get_env(:keeper, :sprites_org, "tensegrity-systems")
+  end
+
+  defp client(opts) do
+    Req.new(
+      [
+        base_url: @base_url,
+        headers: [{"authorization", "Bearer #{token()}"}]
+      ] ++ opts
+    )
+  end
+
+  defp get(path, opts \\ []) do
+    {req_opts, _} = Keyword.split(opts, [:params, :headers, :receive_timeout])
+    Req.get(client(req_opts), url: path)
+  end
+
+  defp post(path, opts) do
+    {req_opts, _} = Keyword.split(opts, [:json, :body, :params, :headers, :receive_timeout])
+    Req.post(client(req_opts), url: path)
+  end
+
+  defp request(method, path, opts \\ []) do
+    {req_opts, _} = Keyword.split(opts, [:json, :body, :params, :headers, :receive_timeout])
+    Req.request(client(req_opts), method: method, url: path)
+  end
+
+  defp extract_exec_output(body) when is_binary(body), do: String.trim(body)
+  defp extract_exec_output(%{"output" => output}), do: String.trim(output)
+  defp extract_exec_output(%{"stdout" => stdout}), do: String.trim(stdout)
+  defp extract_exec_output(body) when is_map(body), do: inspect(body)
+  defp extract_exec_output(body), do: to_string(body)
+
+  defp parse_checkpoint_response(body) when is_binary(body) do
+    # NDJSON — parse last complete line for the checkpoint result
+    body
+    |> String.split("\n", trim: true)
+    |> List.last()
+    |> case do
+      nil ->
+        body
+
+      line ->
+        case Jason.decode(line) do
+          {:ok, %{"id" => _} = data} -> data
+          {:ok, data} -> data
+          _ -> body
+        end
+    end
+  end
+
+  defp parse_checkpoint_response(%{"id" => _} = body), do: body
+  defp parse_checkpoint_response(body), do: body
+
+  defp body_string(body) when is_binary(body), do: body
+  defp body_string(body) when is_map(body), do: Jason.encode!(body)
+  defp body_string(body), do: inspect(body)
+
+  # -- CLI fallback --
+
+  defp cli(args) do
+    do_cli(@sprite_bin, args, 0)
+  end
+
+  defp do_cli(program, args, attempt) do
     case System.cmd(program, args, stderr_to_stdout: true) do
       {output, 0} ->
         {:ok, String.trim(output)}
@@ -57,7 +218,7 @@ defmodule Keeper.Sprites do
       {output, _code} ->
         if attempt < @max_retries and String.contains?(output, "502") do
           Process.sleep(1_000 * (attempt + 1))
-          do_run(program, args, attempt + 1)
+          do_cli(program, args, attempt + 1)
         else
           {:error, String.trim(output)}
         end

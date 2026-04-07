@@ -84,12 +84,13 @@ vivarium/
 │   │   ├── keeper.ex              # Top-level API
 │   │   ├── keeper/application.ex  # OTP app + supervision tree
 │   │   ├── keeper/terrarium.ex    # GenServer per terrarium
-│   │   ├── keeper/sprites.ex      # Sprites CLI wrapper
-│   │   ├── keeper/seed.ex         # Terrarium creation + seeding
-│   │   ├── keeper/wake.ex         # Breath execution + outbox parsing
-│   │   ├── keeper/budget.ex       # Budget tracking + enforcement
-│   │   ├── keeper/config.ex       # Per-terrarium configuration
-│   │   └── mix/tasks/sprint0.ex   # Sprint 0 demo task
+│   │   ├── keeper/sprites.ex          # Sprites HTTP API client (CLI fallback)
+│   │   ├── keeper/seed.ex             # Terrarium creation + seeding
+│   │   ├── keeper/wake.ex             # Breath execution + outbox parsing
+│   │   ├── keeper/budget.ex           # Budget tracking + enforcement
+│   │   ├── keeper/config.ex           # Per-terrarium configuration
+│   │   ├── keeper/checkpoint_meta.ex  # Checkpoint metadata struct
+│   │   └── mix/tasks/sprint0.ex       # Sprint 0 demo task
 │   └── test/
 ├── seed/
 │   └── soul.md                # Default agent soul document
@@ -98,7 +99,7 @@ vivarium/
 ## Environment
 
 - `ANTHROPIC_API_KEY` — available in env, injected by keeper into Sprite at wake time
-- `FLY_API_TOKEN` — available in env, used by the keeper via `sprite` CLI
+- `SPRITES_TOKEN` — optional; when set, keeper uses Sprites HTTP API directly. When absent, falls back to `sprite` CLI.
 - `sprite` CLI is installed and authenticated (org: `tensegrity-systems`)
 
 ## Development Workflow
