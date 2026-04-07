@@ -10,12 +10,14 @@ RUN mix local.hex --force && mix local.rebar --force
 
 ENV MIX_ENV=prod
 
-COPY mix.exs mix.lock ./
+COPY keeper/mix.exs keeper/mix.lock ./
 RUN mix deps.get --only prod
 RUN mix deps.compile
 
-COPY config config
-COPY lib lib
+COPY keeper/config config
+COPY keeper/lib lib
+COPY seed seed
+COPY bootstrap bootstrap
 
 RUN mix compile
 RUN mix release

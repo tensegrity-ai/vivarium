@@ -2,7 +2,7 @@ app = "vivarium-keeper"
 primary_region = "sjc"
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = "keeper/Dockerfile"
 
 [env]
   RELEASE_COOKIE = "vivarium"

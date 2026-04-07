@@ -1,0 +1,5 @@
+keeper/_build/
+keeper/deps/
+.git/
+*.md
+PLANS/
