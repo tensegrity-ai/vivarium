@@ -19,11 +19,16 @@ defmodule Keeper.Wake do
       #{indent(message, 2)}
     """
 
-    with {:ok, _} <- Sprites.write_file(name, "/vivarium/inbox/#{unix_ts}.msg", inbox_msg),
+    with {:ok, _} <- clear_inbox(name),
+         {:ok, _} <- Sprites.write_file(name, "/vivarium/inbox/#{unix_ts}.msg", inbox_msg),
          {:ok, _} <- run_bootstrap(name, api_key),
          {:ok, outbox} <- read_latest_outbox(name) do
       {:ok, outbox}
     end
+  end
+
+  defp clear_inbox(name) do
+    Sprites.exec(name, "rm -f /vivarium/inbox/*.msg")
   end
 
   defp run_bootstrap(name, api_key) do
