@@ -17,8 +17,10 @@ defmodule Keeper.Telegram do
   ]
 
   @impl true
-  def format_status(_reason, [_pdict, state]) do
-    %{state | token: "***"}
+  def format_status(status) do
+    Map.update(status, :state, nil, fn state ->
+      %{state | token: "***"}
+    end)
   end
 
   # -- Client API --
