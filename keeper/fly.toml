@@ -1,0 +1,15 @@
+app = "vivarium-keeper"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  RELEASE_COOKIE = "vivarium"
+
+# No HTTP services — this is a background worker (Telegram polling + heartbeats)
+# Fly keeps it running as a Machine with no public-facing ports.
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
