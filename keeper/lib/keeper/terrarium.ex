@@ -331,7 +331,7 @@ defmodule Keeper.Terrarium do
   # -- Outbox request handling --
 
   defp handle_outbox_requests(state, %{raw: raw}) do
-    case YamlElixir.read_from_string(raw) do
+    case Jason.decode(raw) do
       {:ok, %{"requests" => requests}} when is_list(requests) ->
         Enum.reduce(requests, state, &handle_request/2)
 
@@ -384,7 +384,7 @@ defmodule Keeper.Terrarium do
   # -- Helpers --
 
   defp extract_summary(%{raw: raw}) do
-    case YamlElixir.read_from_string(raw) do
+    case Jason.decode(raw) do
       {:ok, %{"content" => content}} when is_binary(content) ->
         content |> String.split("\n") |> hd() |> String.slice(0..120)
 

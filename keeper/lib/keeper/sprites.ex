@@ -32,9 +32,21 @@ defmodule Keeper.Sprites do
       params = [{"cmd", "bash"}, {"cmd", "-c"}, {"cmd", command}] ++ env_params
 
       case post("/v1/sprites/#{name}/exec", params: params, receive_timeout: 600_000) do
-        {:ok, %{status: 200, body: body}} -> {:ok, extract_exec_output(body)}
-        {:ok, %{status: status, body: body}} -> {:error, "HTTP #{status}: #{body_string(body)}"}
-        {:error, reason} -> {:error, inspect(reason)}
+        {:ok, %{status: 200, body: body}} ->
+          {stdout, stderr, exit_code} = extract_exec_output(body)
+
+          if exit_code == 0 do
+            {:ok, stdout}
+          else
+            detail = if stderr != "", do: stderr, else: stdout
+            {:error, "exit #{exit_code}: #{detail}"}
+          end
+
+        {:ok, %{status: status, body: body}} ->
+          {:error, "HTTP #{status}: #{body_string(body)}"}
+
+        {:error, reason} ->
+          {:error, inspect(reason)}
       end
     else
       env = Keyword.get(opts, :env, [])
@@ -174,46 +186,52 @@ defmodule Keeper.Sprites do
   # The HTTP POST exec endpoint returns binary-framed output:
   # 0x01 = stdout, 0x02 = stderr, 0x03 + byte = exit code
   defp extract_exec_output(body) when is_binary(body) do
-    body
-    |> strip_exec_framing()
-    |> String.trim()
+    {stdout, stderr, exit_code} = parse_exec_frames(body)
+    {String.trim(stdout), String.trim(stderr), exit_code}
   end
 
-  defp extract_exec_output(%{"output" => output}), do: String.trim(output)
-  defp extract_exec_output(%{"stdout" => stdout}), do: String.trim(stdout)
-  defp extract_exec_output(body) when is_map(body), do: inspect(body)
-  defp extract_exec_output(body), do: to_string(body)
+  defp extract_exec_output(%{"output" => output}), do: {String.trim(output), "", 0}
+  defp extract_exec_output(%{"stdout" => stdout}), do: {String.trim(stdout), "", 0}
+  defp extract_exec_output(body) when is_map(body), do: {inspect(body), "", 0}
+  defp extract_exec_output(body), do: {to_string(body), "", 0}
 
-  defp strip_exec_framing(data) do
-    strip_exec_frames(data, <<>>)
+  defp parse_exec_frames(data) do
+    parse_exec_frames(data, <<>>, <<>>, 0)
   end
 
-  # Collect stdout (0x01) frames, skip stderr (0x02) and exit (0x03)
-  defp strip_exec_frames(<<>>, acc), do: acc
-  defp strip_exec_frames(<<0x01, rest::binary>>, acc), do: collect_stdout(rest, acc)
-  defp strip_exec_frames(<<0x02, rest::binary>>, acc), do: skip_frame(rest, acc)
+  # Collect stdout (0x01), stderr (0x02), and exit code (0x03)
+  defp parse_exec_frames(<<>>, stdout, stderr, exit_code), do: {stdout, stderr, exit_code}
 
-  defp strip_exec_frames(<<0x03, _exit_code, rest::binary>>, acc),
-    do: strip_exec_frames(rest, acc)
+  defp parse_exec_frames(<<0x01, rest::binary>>, stdout, stderr, exit_code),
+    do: collect_stdout(rest, stdout, stderr, exit_code)
 
-  defp strip_exec_frames(<<byte, rest::binary>>, acc),
-    do: strip_exec_frames(rest, <<acc::binary, byte>>)
+  defp parse_exec_frames(<<0x02, rest::binary>>, stdout, stderr, exit_code),
+    do: collect_stderr(rest, stdout, stderr, exit_code)
+
+  defp parse_exec_frames(<<0x03, code, rest::binary>>, stdout, stderr, _exit_code),
+    do: parse_exec_frames(rest, stdout, stderr, code)
+
+  defp parse_exec_frames(<<byte, rest::binary>>, stdout, stderr, exit_code),
+    do: parse_exec_frames(rest, <<stdout::binary, byte>>, stderr, exit_code)
 
   # Collect bytes until we hit another frame marker (0x01, 0x02, 0x03)
-  defp collect_stdout(<<>>, acc), do: acc
+  defp collect_stdout(<<>>, stdout, stderr, exit_code), do: {stdout, stderr, exit_code}
 
-  defp collect_stdout(<<marker, _::binary>> = rest, acc) when marker in [0x01, 0x02, 0x03],
-    do: strip_exec_frames(rest, acc)
+  defp collect_stdout(<<marker, _::binary>> = rest, stdout, stderr, exit_code)
+       when marker in [0x01, 0x02, 0x03],
+       do: parse_exec_frames(rest, stdout, stderr, exit_code)
 
-  defp collect_stdout(<<byte, rest::binary>>, acc),
-    do: collect_stdout(rest, <<acc::binary, byte>>)
+  defp collect_stdout(<<byte, rest::binary>>, stdout, stderr, exit_code),
+    do: collect_stdout(rest, <<stdout::binary, byte>>, stderr, exit_code)
 
-  defp skip_frame(<<>>, acc), do: acc
+  defp collect_stderr(<<>>, stdout, stderr, exit_code), do: {stdout, stderr, exit_code}
 
-  defp skip_frame(<<marker, _::binary>> = rest, acc) when marker in [0x01, 0x02, 0x03],
-    do: strip_exec_frames(rest, acc)
+  defp collect_stderr(<<marker, _::binary>> = rest, stdout, stderr, exit_code)
+       when marker in [0x01, 0x02, 0x03],
+       do: parse_exec_frames(rest, stdout, stderr, exit_code)
 
-  defp skip_frame(<<_byte, rest::binary>>, acc), do: skip_frame(rest, acc)
+  defp collect_stderr(<<byte, rest::binary>>, stdout, stderr, exit_code),
+    do: collect_stderr(rest, <<stdout::binary, byte>>, stderr, exit_code)
 
   defp parse_checkpoint_response(body) when is_binary(body) do
     # NDJSON — parse last complete line for the checkpoint result

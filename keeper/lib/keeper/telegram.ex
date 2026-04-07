@@ -411,7 +411,7 @@ defmodule Keeper.Telegram do
   end
 
   defp parse_outbox_content(raw) do
-    case YamlElixir.read_from_string(raw) do
+    case Jason.decode(raw) do
       {:ok, %{"content" => content}} when is_binary(content) -> String.trim(content)
       _ -> raw
     end

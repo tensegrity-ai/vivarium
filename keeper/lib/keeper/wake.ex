@@ -14,13 +14,13 @@ defmodule Keeper.Wake do
     api_key = Keyword.get(opts, :api_key, System.get_env("ANTHROPIC_API_KEY"))
     budget = Keyword.get(opts, :budget)
     budget_limits = Keyword.get(opts, :budget_limits)
-    inbox_yaml = build_inbox(message, opts)
+    inbox_json = build_inbox(message, opts)
     unix_ts = System.os_time(:second)
 
     with {:ok, _} <- clear_inbox(name),
          {:ok, _} <- clear_outbox(name),
          :ok <- maybe_write_budget_status(name, budget, budget_limits),
-         {:ok, _} <- Sprites.write_file(name, "/vivarium/inbox/#{unix_ts}.msg", inbox_yaml),
+         {:ok, _} <- Sprites.write_file(name, "/vivarium/inbox/#{unix_ts}.msg", inbox_json),
          {compute_ms, {:ok, _}} <- run_bootstrap(name, api_key) do
       case read_and_parse_outbox(name) do
         {:ok, outbox} ->
@@ -42,33 +42,28 @@ defmodule Keeper.Wake do
 
   @doc "Build a continuation inbox message for re-wake."
   def continuation_inbox do
-    ts = DateTime.utc_now() |> DateTime.to_iso8601()
-
-    """
-    type: continuation
-    timestamp: "#{ts}"
-    from: system
-    channel: internal
-    content: "Continuation — pick up from your handoff."
-    context:
-      continuation: true
-    """
+    %{
+      type: "continuation",
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
+      from: "system",
+      channel: "internal",
+      content: "Continuation — pick up from your handoff.",
+      context: %{continuation: true}
+    }
+    |> Jason.encode!(pretty: true)
   end
 
   @doc "Build a crash recovery inbox message."
   def crash_recovery_inbox(message) do
-    ts = DateTime.utc_now() |> DateTime.to_iso8601()
-
-    """
-    type: message
-    timestamp: "#{ts}"
-    from: system
-    channel: internal
-    content: |
-      #{indent(message, 2)}
-    context:
-      crash_recovery: true
-    """
+    %{
+      type: "message",
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
+      from: "system",
+      channel: "internal",
+      content: message,
+      context: %{crash_recovery: true}
+    }
+    |> Jason.encode!(pretty: true)
   end
 
   defp build_inbox(message, opts) do
@@ -84,34 +79,22 @@ defmodule Keeper.Wake do
         crash_recovery_inbox(message)
 
       :heartbeat ->
-        """
-        type: heartbeat
-        timestamp: "#{ts}"
-        from: system
-        channel: cron
-        content: |
-          #{indent(message, 2)}
-        """
+        %{type: "heartbeat", timestamp: ts, from: "system", channel: "cron", content: message}
+        |> Jason.encode!(pretty: true)
 
       :scheduled ->
-        """
-        type: scheduled
-        timestamp: "#{ts}"
-        from: system
-        channel: scheduled
-        content: |
-          #{indent(message, 2)}
-        """
+        %{
+          type: "scheduled",
+          timestamp: ts,
+          from: "system",
+          channel: "scheduled",
+          content: message
+        }
+        |> Jason.encode!(pretty: true)
 
       _ ->
-        """
-        type: message
-        timestamp: "#{ts}"
-        from: #{from}
-        channel: #{channel}
-        content: |
-          #{indent(message, 2)}
-        """
+        %{type: "message", timestamp: ts, from: from, channel: channel, content: message}
+        |> Jason.encode!(pretty: true)
     end
   end
 
@@ -129,7 +112,7 @@ defmodule Keeper.Wake do
     result =
       Sprites.exec(
         name,
-        "python3 /vivarium/bootstrap/bootstrap.py",
+        "/vivarium/bootstrap/vivarium-bootstrap",
         env: [{"ANTHROPIC_API_KEY", api_key}]
       )
 
@@ -141,18 +124,18 @@ defmodule Keeper.Wake do
   defp maybe_write_budget_status(_name, _budget, nil), do: :ok
 
   defp maybe_write_budget_status(name, budget, limits) do
-    yaml = Budget.to_yaml(budget, limits)
+    json = Budget.to_json(budget, limits)
 
-    case Sprites.write_file(name, "/vivarium/.keeper/budget_status", yaml) do
+    case Sprites.write_file(name, "/vivarium/.keeper/budget_status.json", json) do
       {:ok, _} -> :ok
       error -> error
     end
   end
 
   defp read_usage(name) do
-    case Sprites.read_file(name, "/vivarium/.keeper/breath_usage.yaml") do
+    case Sprites.read_file(name, "/vivarium/.keeper/breath_usage.json") do
       {:ok, raw} ->
-        case YamlElixir.read_from_string(raw) do
+        case Jason.decode(raw) do
           {:ok, data} -> data
           _ -> %{}
         end
@@ -179,7 +162,7 @@ defmodule Keeper.Wake do
   end
 
   defp parse_outbox_type(raw) do
-    case YamlElixir.read_from_string(raw) do
+    case Jason.decode(raw) do
       {:ok, %{"type" => type}} -> outbox_type(type)
       _ -> :response
     end
@@ -189,12 +172,4 @@ defmodule Keeper.Wake do
   defp outbox_type("request"), do: :request
   defp outbox_type("silent"), do: :silent
   defp outbox_type(_), do: :response
-
-  defp indent(text, n) do
-    pad = String.duplicate(" ", n)
-
-    text
-    |> String.split("\n")
-    |> Enum.join("\n#{pad}")
-  end
 end

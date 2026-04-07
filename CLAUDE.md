@@ -1,6 +1,6 @@
 # Vivarium
 
-A Sprites-native framework for semi-autonomous agents. Two components: a **keeper** (Elixir/OTP) that manages lifecycle, and a **bootstrap** (Python) that animates the agent inside a Fly.io Sprite VM.
+A Sprites-native framework for semi-autonomous agents. Two components: a **keeper** (Elixir/OTP) that manages lifecycle, and a **bootstrap** (Rust) that animates the agent inside a Fly.io Sprite VM.
 
 ## Core Thesis
 
@@ -21,19 +21,19 @@ Keeper (Elixir/OTP, runs outside terrarium)
   - Scheduler: heartbeats, agent-requested wakes
   ↓ Sprites API (exec, fs read/write) + git inside /vivarium/
 Terrarium (Fly.io Sprite VM)
-  - Bootstrap (Python): reads handoff → calls LLM → tool loop → writes handoff
+  - Bootstrap (Rust static binary): reads handoff → calls LLM → tool loop → writes handoff
   - Agent tools: bash, read_file, write_file, edit_file
   - Accumulated state: scripts, data, packages, notes
-  - Protocol: files in /vivarium/{inbox,outbox,context}/
+  - Protocol: JSON files in /vivarium/{inbox,outbox,context}/
 ```
 
 ## Language Decisions
 
-**Bootstrap = Python.** Runs inside the Sprite. ~200 lines. Dies after every breath. LLM provider SDKs are Python-first. No performance requirements. Start with raw Anthropic SDK, add litellm or provider switch later.
+**Bootstrap = Rust.** Static binary, zero runtime dependencies. The agent cannot corrupt it. Runs inside the Sprite, dies after every breath. Calls the Anthropic API directly via HTTP+JSON — no SDK needed. Includes explicit prompt cache breakpoints for token savings.
 
 **Keeper = Elixir/OTP.** Long-lived concurrent lifecycle manager. Each terrarium is a GenServer. Supervision trees for fault tolerance. Message routing via pattern matching. Timer-based scheduling. The BEAM was built for this exact shape of problem.
 
-**Protocol = YAML files on disk.** Language-agnostic. Keeper writes inbox, reads outbox. Bootstrap reads inbox, writes outbox. Agent writes handoff and log using its own tools.
+**Protocol = JSON files on disk.** One serialization format for all structured data. Keeper writes inbox (JSON), reads outbox (JSON). Bootstrap reads inbox, writes outbox. Agent writes handoff (markdown) and log (JSONL) using its own tools.
 
 ## Key Design Principles
 
@@ -73,11 +73,13 @@ vivarium/
 │   ├── 02-keeper.md           # Keeper implementation guide
 │   ├── 03-protocol.md         # Protocol specification
 │   └── tech-debt.md           # Known issues and future work
-├── bootstrap/                 # Python bootstrap (~400 lines)
-│   ├── bootstrap.py           # Agent loop with token tracking + negotiation
-│   ├── tools.py               # Four tools (bash, read, write, edit)
-│   ├── context.py             # Prompt assembly (continuation/crash-aware)
-│   └── requirements.txt       # anthropic, pyyaml
+├── bootstrap/                 # Rust bootstrap (static binary)
+│   ├── Cargo.toml             # serde, serde_json, reqwest
+│   └── src/
+│       ├── main.rs            # Agent loop with token tracking + negotiation + prompt caching
+│       ├── api.rs             # Anthropic Messages API client (blocking HTTP, retries)
+│       ├── context.rs         # Prompt assembly (continuation/crash-aware)
+│       └── tools.rs           # Four tools (bash, read, write, edit)
 ├── keeper/                    # Elixir keeper (~500 lines)
 │   ├── mix.exs
 │   ├── lib/
@@ -95,7 +97,8 @@ vivarium/
 │   │   └── mix/tasks/sprint0.ex       # Sprint 0 demo task
 │   └── test/
 ├── seed/
-│   └── soul.md                # Default agent soul document
+│   ├── soul.md                # Default agent soul document
+│   └── AGENTS.md              # Agent operational knowledge (seeded into terrarium)
 ```
 
 ## Environment
@@ -123,15 +126,23 @@ refactor: extract prompt assembly into context.py
 docs: add sprint 0 plan
 ```
 
+## Rust
+
+The bootstrap is built with `cargo`. Cross-compile for Sprites via `cargo-zigbuild`:
+
+```
+cd bootstrap && cargo zigbuild --release --target x86_64-unknown-linux-musl
+```
+
 ## Python
 
-Use `uv` for all Python needs — packages, venvs, running scripts.
+Use `uv` for all Python needs — packages, venvs, running scripts. (Python is not used by the bootstrap, but may be used by the agent inside the Sprite.)
 
 ## Conventions
 
 - The bootstrap is the agent's interface to the LLM. Keep it boring.
 - The keeper is infrastructure. Keep it deterministic. No LLM calls in the keeper.
-- YAML for all protocol files (inbox, outbox, checkpoint metadata, budget status).
+- JSON for all structured protocol files (inbox, outbox, budget status, bootstrap config).
 - JSONL for the wake log (append-only, one line per breath).
-- Markdown for handoff notes and soul documents.
+- Markdown for handoff notes, soul documents, and AGENTS.md.
 - All times in UTC ISO 8601.

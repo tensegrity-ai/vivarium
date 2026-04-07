@@ -29,7 +29,7 @@ Keeper.create("my-agent",
 )
 
 # Wake with a message (blocks until breath completes)
-{:ok, %{type: :response, raw: outbox_yaml}} =
+{:ok, %{type: :response, raw: outbox_json}} =
   Keeper.wake("my-agent", "What's the status of the project?")
 
 # Checkpoint
@@ -72,8 +72,8 @@ Keeper.wake(name, message)
   → write budget_status
   → write inbox message
   → exec bootstrap (timed)
-  → read outbox + parse YAML type
-  → read breath_usage.yaml (tokens)
+  → read outbox + parse JSON type
+  → read breath_usage.json (tokens)
   → return {type, raw, usage, compute_ms}
 ```
 
@@ -90,5 +90,5 @@ Budget resets at UTC midnight.
 
 ## Dependencies
 
-- `yaml_elixir` — YAML parsing for outbox and usage files
-- `jason` — JSON (for future use with JSONL log reading)
+- `jason` — JSON encoding/decoding for protocol files (inbox, outbox, usage, budget, config)
+- `req` — HTTP client for Sprites API

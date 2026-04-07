@@ -37,24 +37,28 @@ defmodule Keeper.Budget do
     end
   end
 
-  @doc "Format budget status as YAML string for writing to the Sprite."
-  def to_yaml(%__MODULE__{} = budget, limits) do
-    """
-    period: daily
-    period_start: "#{DateTime.to_iso8601(budget.period_start)}"
-    tokens:
-      used: #{budget.tokens_used}
-      limit: #{limits.daily_tokens}
-      remaining: #{max(limits.daily_tokens - budget.tokens_used, 0)}
-    breaths:
-      used: #{budget.breaths_used}
-      limit: #{limits.daily_breaths}
-      remaining: #{max(limits.daily_breaths - budget.breaths_used, 0)}
-    compute_ms:
-      used: #{budget.compute_ms}
-      limit: #{limits.daily_compute_ms}
-      remaining: #{max(limits.daily_compute_ms - budget.compute_ms, 0)}
-    """
+  @doc "Format budget status as JSON string for writing to the Sprite."
+  def to_json(%__MODULE__{} = budget, limits) do
+    %{
+      period: "daily",
+      period_start: DateTime.to_iso8601(budget.period_start),
+      tokens: %{
+        used: budget.tokens_used,
+        limit: limits.daily_tokens,
+        remaining: max(limits.daily_tokens - budget.tokens_used, 0)
+      },
+      breaths: %{
+        used: budget.breaths_used,
+        limit: limits.daily_breaths,
+        remaining: max(limits.daily_breaths - budget.breaths_used, 0)
+      },
+      compute_ms: %{
+        used: budget.compute_ms,
+        limit: limits.daily_compute_ms,
+        remaining: max(limits.daily_compute_ms - budget.compute_ms, 0)
+      }
+    }
+    |> Jason.encode!(pretty: true)
   end
 
   defp beginning_of_day do

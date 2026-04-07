@@ -22,15 +22,16 @@ defmodule Keeper.Config do
     end
   end
 
-  @doc "Generate bootstrap_config.yaml content from this config."
-  def to_bootstrap_yaml(%__MODULE__{} = config) do
-    """
-    provider: anthropic
-    model: #{config.model}
-    api_key_env: ANTHROPIC_API_KEY
-    context_limit: #{config.context_limit}
-    max_response_tokens: #{config.max_response_tokens}
-    tool_timeout_seconds: 300
-    """
+  @doc "Generate bootstrap_config.json content from this config."
+  def to_bootstrap_json(%__MODULE__{} = config) do
+    %{
+      provider: "anthropic",
+      model: config.model,
+      api_key_env: "ANTHROPIC_API_KEY",
+      context_limit: config.context_limit,
+      max_response_tokens: config.max_response_tokens,
+      tool_timeout_seconds: 300
+    }
+    |> Jason.encode!(pretty: true)
   end
 end

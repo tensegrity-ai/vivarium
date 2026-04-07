@@ -5,27 +5,29 @@ defmodule Keeper.Seed do
 
   # Embed files at compile time so they're available in releases
   @soul_content File.read!(Path.expand("../../../seed/soul.md", __DIR__))
-  @bootstrap_contents %{
-    "bootstrap.py" => File.read!(Path.expand("../../../bootstrap/bootstrap.py", __DIR__)),
-    "context.py" => File.read!(Path.expand("../../../bootstrap/context.py", __DIR__)),
-    "tools.py" => File.read!(Path.expand("../../../bootstrap/tools.py", __DIR__)),
-    "requirements.txt" => File.read!(Path.expand("../../../bootstrap/requirements.txt", __DIR__))
-  }
+  @agents_md_content File.read!(Path.expand("../../../seed/AGENTS.md", __DIR__))
 
   # Recompile this module when these files change
   @external_resource Path.expand("../../../seed/soul.md", __DIR__)
-  @external_resource Path.expand("../../../bootstrap/bootstrap.py", __DIR__)
-  @external_resource Path.expand("../../../bootstrap/context.py", __DIR__)
-  @external_resource Path.expand("../../../bootstrap/tools.py", __DIR__)
-  @external_resource Path.expand("../../../bootstrap/requirements.txt", __DIR__)
+  @external_resource Path.expand("../../../seed/AGENTS.md", __DIR__)
+
+  # Path to the cross-compiled bootstrap binary for Sprites (linux x86_64).
+  # Built separately via: cargo build --release --target x86_64-unknown-linux-musl
+  # Read at runtime (not embedded) — binary is too large to compile into the module.
+  @bootstrap_binary_path Path.expand(
+                           "../../../bootstrap/target/x86_64-unknown-linux-musl/release/vivarium-bootstrap",
+                           __DIR__
+                         )
+
+  # No @external_resource for the binary — it's read at runtime via File.read!/1
 
   def create(name, config \\ Config.new()) do
     with {:ok, _} <- Sprites.create(name),
          :ok <- create_dirs(name),
          :ok <- write_soul(name),
+         :ok <- write_agents_md(name),
          :ok <- write_bootstrap(name),
          :ok <- write_config(name, config),
-         :ok <- install_deps(name),
          :ok <- Git.init(name) do
       {:ok, name}
     end
@@ -50,26 +52,26 @@ defmodule Keeper.Seed do
     end
   end
 
-  defp write_bootstrap(name) do
-    Enum.reduce_while(@bootstrap_contents, :ok, fn {file, content}, :ok ->
-      case Sprites.write_file(name, "/vivarium/bootstrap/#{file}", content) do
-        {:ok, _} -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp write_config(name, config) do
-    yaml = Config.to_bootstrap_yaml(config)
-
-    case Sprites.write_file(name, "/vivarium/.keeper/bootstrap_config.yaml", yaml) do
+  defp write_agents_md(name) do
+    case Sprites.write_file(name, "/vivarium/AGENTS.md", @agents_md_content) do
       {:ok, _} -> :ok
       error -> error
     end
   end
 
-  defp install_deps(name) do
-    case Sprites.exec(name, "pip install -r /vivarium/bootstrap/requirements.txt") do
+  defp write_bootstrap(name) do
+    binary = File.read!(@bootstrap_binary_path)
+
+    with {:ok, _} <- Sprites.write_file(name, "/vivarium/bootstrap/vivarium-bootstrap", binary),
+         {:ok, _} <- Sprites.exec(name, "chmod +x /vivarium/bootstrap/vivarium-bootstrap") do
+      :ok
+    end
+  end
+
+  defp write_config(name, config) do
+    json = Config.to_bootstrap_json(config)
+
+    case Sprites.write_file(name, "/vivarium/.keeper/bootstrap_config.json", json) do
       {:ok, _} -> :ok
       error -> error
     end
