@@ -22,12 +22,12 @@ defmodule Mix.Tasks.Sprint0 do
     IO.puts("→ First breath: waking agent...")
 
     case Keeper.wake(name, "You're alive. Read your soul. Look around. Make this place yours.") do
-      {:ok, outbox} ->
+      {:ok, %{raw: raw}} ->
         IO.puts("  ✓ First breath complete")
-        IO.puts("  Outbox:\n#{indent(outbox)}\n")
+        IO.puts("  Outbox:\n#{indent(raw)}\n")
 
       {:error, e} ->
-        abort("First breath failed: #{e}")
+        abort("First breath failed: #{inspect(e)}")
     end
 
     IO.puts("→ Checkpointing...")
@@ -44,12 +44,12 @@ defmodule Mix.Tasks.Sprint0 do
            name,
            "What do you remember from your first breath? What did you leave yourself?"
          ) do
-      {:ok, outbox} ->
+      {:ok, %{raw: raw}} ->
         IO.puts("  ✓ Second breath complete")
-        IO.puts("  Outbox:\n#{indent(outbox)}\n")
+        IO.puts("  Outbox:\n#{indent(raw)}\n")
 
       {:error, e} ->
-        abort("Second breath failed: #{e}")
+        abort("Second breath failed: #{inspect(e)}")
     end
 
     IO.puts("→ Checkpointing...")

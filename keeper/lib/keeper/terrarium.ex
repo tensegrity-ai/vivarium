@@ -4,12 +4,15 @@ defmodule Keeper.Terrarium do
 
   alias Keeper.{Sprites, Seed, Wake}
 
+  @max_continuations 5
+
   defstruct [
     :name,
     status: :idle,
     breath_count: 0,
     checkpoint_history: [],
-    consecutive_continuations: 0
+    consecutive_continuations: 0,
+    crash_recovery: false
   ]
 
   # -- Client API --
@@ -49,17 +52,26 @@ defmodule Keeper.Terrarium do
     end
   end
 
-  def handle_call({:wake, message, opts}, _from, %{name: name} = state) do
+  def handle_call({:wake, message, opts}, _from, state) do
     state = %{state | status: :breathing}
 
-    case Wake.breathe(name, message, opts) do
-      {:ok, outbox} ->
-        state = %{state | status: :idle, breath_count: state.breath_count + 1}
+    # If previous breath crashed, flag this wake as crash recovery
+    opts =
+      if state.crash_recovery do
+        Keyword.put(opts, :inbox_type, :crash_recovery)
+      else
+        opts
+      end
 
-        {:reply, {:ok, outbox}, state}
+    case breathe_loop(state, message, opts) do
+      {:ok, outbox, state} ->
+        {:reply, {:ok, outbox}, %{state | status: :idle}}
 
-      error ->
-        {:reply, error, %{state | status: :idle}}
+      {:runaway, state} ->
+        {:reply, {:error, :runaway}, %{state | status: :idle}}
+
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, %{state | status: :idle}}
     end
   end
 
@@ -82,6 +94,54 @@ defmodule Keeper.Terrarium do
 
   def handle_call(:status, _from, state) do
     {:reply, state, state}
+  end
+
+  # -- Breath loop with continuation support --
+
+  defp breathe_loop(state, message, opts) do
+    case Wake.breathe(state.name, message, opts) do
+      {:ok, %{type: :continuing}} ->
+        state = %{
+          state
+          | breath_count: state.breath_count + 1,
+            consecutive_continuations: state.consecutive_continuations + 1,
+            crash_recovery: false
+        }
+
+        # Checkpoint between continuation breaths
+        do_checkpoint(state)
+
+        if state.consecutive_continuations >= @max_continuations do
+          {:runaway, state}
+        else
+          # Re-wake with continuation inbox
+          breathe_loop(state, "Continuation", Keyword.put(opts, :inbox_type, :continuation))
+        end
+
+      {:ok, outbox} ->
+        state = %{
+          state
+          | breath_count: state.breath_count + 1,
+            consecutive_continuations: 0,
+            crash_recovery: false
+        }
+
+        {:ok, outbox, state}
+
+      {:error, {:crash, reason}} ->
+        # Bootstrap crashed — checkpoint whatever exists, flag next wake
+        do_checkpoint(state)
+        state = %{state | crash_recovery: true}
+        {:error, {:crash, reason}, state}
+
+      {:error, reason} ->
+        {:error, reason, state}
+    end
+  end
+
+  defp do_checkpoint(%{name: name} = _state) do
+    # Best-effort checkpoint between continuations — don't fail the loop
+    Sprites.checkpoint(name)
   end
 
   # -- Registry --

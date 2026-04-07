@@ -4,6 +4,8 @@ import glob
 import json
 import os
 
+import yaml
+
 VIVARIUM = "/vivarium"
 
 
@@ -17,8 +19,12 @@ def build_system_prompt() -> tuple[str, str]:
     log_entries = _read_log_tail(f"{VIVARIUM}/context/wake.jsonl", n=10)
     soul = _read_soul()
     budget = _read_optional(f"{VIVARIUM}/.keeper/budget_status")
-    inbox = _read_inbox()
+    inbox_raw = _read_inbox()
+    inbox_meta = _parse_inbox_meta()
     warnings = _sanity_check(handoff, log_entries)
+
+    is_continuation = inbox_meta.get("type") == "continuation" or inbox_meta.get("context", {}).get("continuation", False)
+    is_crash_recovery = inbox_meta.get("context", {}).get("crash_recovery", False)
 
     # --- system prompt ---
     parts = [_SYSTEM_PREAMBLE]
@@ -26,7 +32,24 @@ def build_system_prompt() -> tuple[str, str]:
     if soul:
         parts.append(f"[SOUL]\n{soul}")
 
-    if handoff:
+    if is_crash_recovery:
+        parts.append(
+            "[CRASH RECOVERY]\n"
+            "Your last breath was interrupted before you could write a "
+            "handoff. The filesystem may contain partial work from that "
+            "breath. Inspect before continuing."
+        )
+        if handoff:
+            parts.append(f"[LAST KNOWN HANDOFF — from before the crash]\n{handoff}")
+    elif is_continuation:
+        parts.append(
+            "[CONTINUATION]\n"
+            "You're mid-task. Your handoff has the details. "
+            "Pick up where you left off."
+        )
+        if handoff:
+            parts.append(f"[HANDOFF — your continuation note]\n{handoff}")
+    elif handoff:
         parts.append(f"[HANDOFF — your note from last breath]\n{handoff}")
     else:
         parts.append(
@@ -46,7 +69,7 @@ def build_system_prompt() -> tuple[str, str]:
         parts.append(f"[WARNINGS]\n" + "\n".join(f"- {w}" for w in warnings))
 
     system_prompt = "\n\n".join(parts)
-    user_message = inbox or "Heartbeat — no inbox messages."
+    user_message = inbox_raw or "Heartbeat — no inbox messages."
     return system_prompt, user_message
 
 
@@ -103,6 +126,20 @@ def _read_inbox() -> str | None:
         with open(fp) as f:
             parts.append(f.read().strip())
     return "\n---\n".join(parts)
+
+
+def _parse_inbox_meta() -> dict:
+    """Parse the latest inbox message YAML for metadata flags."""
+    pattern = f"{VIVARIUM}/inbox/*.msg"
+    files = sorted(glob.glob(pattern))
+    if not files:
+        return {}
+    try:
+        with open(files[-1]) as f:
+            data = yaml.safe_load(f.read())
+        return data if isinstance(data, dict) else {}
+    except (yaml.YAMLError, OSError):
+        return {}
 
 
 def _sanity_check(handoff: str | None, log_entries: list[str]) -> list[str]:

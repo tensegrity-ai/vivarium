@@ -38,6 +38,9 @@ def main():
     system_prompt, user_message = build_system_prompt()
 
     messages = [{"role": "user", "content": user_message}]
+    context_limit = config["context_limit"]
+    negotiation_sent = False
+    cutoff_sent = False
 
     while True:
         response = client.messages.create(
@@ -49,6 +52,10 @@ def main():
         )
 
         messages.append({"role": "assistant", "content": response.content})
+
+        # Hard cutoff: if we already told the agent to wrap up, stop now
+        if cutoff_sent:
+            break
 
         if response.stop_reason == "end_turn":
             break
@@ -70,6 +77,32 @@ def main():
 
         if not tool_results:
             break
+
+        # Check context budget using actual token counts from the API
+        tokens_used = response.usage.input_tokens
+        if not cutoff_sent and tokens_used >= context_limit * 0.95:
+            tool_results.append({
+                "type": "text",
+                "text": (
+                    "[SYSTEM] Context limit reached (95%). Write your handoff "
+                    "and outbox now. This breath is ending."
+                ),
+            })
+            cutoff_sent = True
+        elif not negotiation_sent and tokens_used >= context_limit * 0.80:
+            tool_results.append({
+                "type": "text",
+                "text": (
+                    "[SYSTEM] You're approaching the end of this breath "
+                    "(~80% context used). Can you complete your current task "
+                    "in the remaining context, or should you write a handoff "
+                    "for the next breath?\n\n"
+                    "Respond with CONTINUING if you can finish, or "
+                    "HANDING_OFF if you need another breath. If handing off, "
+                    "write your continuation handoff and outbox now."
+                ),
+            })
+            negotiation_sent = True
 
         messages.append({"role": "user", "content": tool_results})
 
