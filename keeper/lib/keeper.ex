@@ -1,18 +1,30 @@
 defmodule Keeper do
-  @moduledoc """
-  Documentation for `Keeper`.
-  """
+  @moduledoc "Top-level API for managing terrariums."
 
-  @doc """
-  Hello world.
+  alias Keeper.Terrarium
 
-  ## Examples
+  def create(name) do
+    with {:ok, _pid} <- start_terrarium(name) do
+      Terrarium.create(name)
+    end
+  end
 
-      iex> Keeper.hello()
-      :world
+  def wake(name, message, opts \\ []) do
+    Terrarium.wake(name, message, opts)
+  end
 
-  """
-  def hello do
-    :world
+  def checkpoint(name) do
+    Terrarium.checkpoint(name)
+  end
+
+  def status(name) do
+    Terrarium.status(name)
+  end
+
+  defp start_terrarium(name) do
+    DynamicSupervisor.start_child(
+      Keeper.TerrariumSupervisor,
+      {Terrarium, name}
+    )
   end
 end

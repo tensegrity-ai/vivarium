@@ -5,21 +5,23 @@ defmodule Mix.Tasks.Sprint0 do
   @shortdoc "Run the Sprint 0 two-breath demo"
 
   def run(args) do
+    Mix.Task.run("app.start")
+
     name = List.first(args) || "vivarium-sprint0-#{System.os_time(:second)}"
     IO.puts("=== Sprint 0: #{name} ===\n")
 
-    # Step 1: Seed
+    # Step 1: Create and seed
     IO.puts("→ Creating and seeding terrarium...")
 
-    case Keeper.Seed.create(name) do
-      {:ok, _} -> IO.puts("  ✓ Seeded\n")
+    case Keeper.create(name) do
+      :ok -> IO.puts("  ✓ Seeded\n")
       {:error, e} -> abort("Seed failed: #{e}")
     end
 
     # Step 2: First breath
     IO.puts("→ First breath: waking agent...")
 
-    case Keeper.Wake.breathe(name, "You're alive. Read your soul. Look around. Make this place yours.") do
+    case Keeper.wake(name, "You're alive. Read your soul. Look around. Make this place yours.") do
       {:ok, outbox} ->
         IO.puts("  ✓ First breath complete")
         IO.puts("  Outbox:\n#{indent(outbox)}\n")
@@ -28,10 +30,9 @@ defmodule Mix.Tasks.Sprint0 do
         abort("First breath failed: #{e}")
     end
 
-    # Checkpoint 1
     IO.puts("→ Checkpointing...")
 
-    case Keeper.Sprites.checkpoint(name) do
+    case Keeper.checkpoint(name) do
       {:ok, out} -> IO.puts("  ✓ #{out}\n")
       {:error, e} -> abort("Checkpoint failed: #{e}")
     end
@@ -39,7 +40,10 @@ defmodule Mix.Tasks.Sprint0 do
     # Step 3: Second breath
     IO.puts("→ Second breath: testing continuity...")
 
-    case Keeper.Wake.breathe(name, "What do you remember from your first breath? What did you leave yourself?") do
+    case Keeper.wake(
+           name,
+           "What do you remember from your first breath? What did you leave yourself?"
+         ) do
       {:ok, outbox} ->
         IO.puts("  ✓ Second breath complete")
         IO.puts("  Outbox:\n#{indent(outbox)}\n")
@@ -48,21 +52,19 @@ defmodule Mix.Tasks.Sprint0 do
         abort("Second breath failed: #{e}")
     end
 
-    # Checkpoint 2
     IO.puts("→ Checkpointing...")
 
-    case Keeper.Sprites.checkpoint(name) do
+    case Keeper.checkpoint(name) do
       {:ok, out} -> IO.puts("  ✓ #{out}\n")
       {:error, e} -> abort("Checkpoint failed: #{e}")
     end
 
-    # Verify
-    IO.puts("→ Reading handoff for verification...")
+    # Status
+    status = Keeper.status(name)
 
-    case Keeper.Sprites.read_file(name, "/vivarium/context/handoff.md") do
-      {:ok, handoff} -> IO.puts("  Handoff:\n#{indent(handoff)}\n")
-      {:error, e} -> IO.puts("  Warning: couldn't read handoff: #{e}\n")
-    end
+    IO.puts(
+      "→ Final status: #{status.breath_count} breaths, #{length(status.checkpoint_history)} checkpoints\n"
+    )
 
     IO.puts("=== Sprint 0 complete: #{name} ===")
   end
