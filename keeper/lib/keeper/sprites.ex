@@ -4,28 +4,29 @@ defmodule Keeper.Sprites do
   Sprint 0: shell out to CLI. Upgrade to HTTP API later.
   """
 
-  @org "tensegrity-systems"
   @max_retries 2
   @sprite_bin "sprite"
 
+  defp org, do: Application.get_env(:keeper, :sprites_org, "tensegrity-systems")
+
   def create(name) do
-    run([@sprite_bin, "create", "-o", @org, name])
+    run([@sprite_bin, "create", "-o", org(), name])
   end
 
   def exec(name, command, _opts \\ []) do
-    run([@sprite_bin, "exec", "-s", name, "-o", @org, "--", "bash", "-c", command])
+    run([@sprite_bin, "exec", "-s", name, "-o", org(), "--", "bash", "-c", command])
   end
 
   def checkpoint(name) do
-    run([@sprite_bin, "checkpoint", "create", "-s", name, "-o", @org])
+    run([@sprite_bin, "checkpoint", "create", "-s", name, "-o", org()])
   end
 
   def restore(name, version) do
-    run([@sprite_bin, "restore", version, "-s", name, "-o", @org])
+    run([@sprite_bin, "restore", version, "-s", name, "-o", org()])
   end
 
   def destroy(name) do
-    run([@sprite_bin, "destroy", name, "-o", @org, "--force"])
+    run([@sprite_bin, "destroy", name, "-o", org(), "--force"])
   end
 
   @doc "Write a file into the sprite. Uses base64 via exec to avoid quoting issues."
