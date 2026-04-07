@@ -171,11 +171,49 @@ defmodule Keeper.Sprites do
     Req.request(client(), [method: method, url: path] ++ opts)
   end
 
-  defp extract_exec_output(body) when is_binary(body), do: String.trim(body)
+  # The HTTP POST exec endpoint returns binary-framed output:
+  # 0x01 = stdout, 0x02 = stderr, 0x03 + byte = exit code
+  defp extract_exec_output(body) when is_binary(body) do
+    body
+    |> strip_exec_framing()
+    |> String.trim()
+  end
+
   defp extract_exec_output(%{"output" => output}), do: String.trim(output)
   defp extract_exec_output(%{"stdout" => stdout}), do: String.trim(stdout)
   defp extract_exec_output(body) when is_map(body), do: inspect(body)
   defp extract_exec_output(body), do: to_string(body)
+
+  defp strip_exec_framing(data) do
+    strip_exec_frames(data, <<>>)
+  end
+
+  # Collect stdout (0x01) frames, skip stderr (0x02) and exit (0x03)
+  defp strip_exec_frames(<<>>, acc), do: acc
+  defp strip_exec_frames(<<0x01, rest::binary>>, acc), do: collect_stdout(rest, acc)
+  defp strip_exec_frames(<<0x02, rest::binary>>, acc), do: skip_frame(rest, acc)
+
+  defp strip_exec_frames(<<0x03, _exit_code, rest::binary>>, acc),
+    do: strip_exec_frames(rest, acc)
+
+  defp strip_exec_frames(<<byte, rest::binary>>, acc),
+    do: strip_exec_frames(rest, <<acc::binary, byte>>)
+
+  # Collect bytes until we hit another frame marker (0x01, 0x02, 0x03)
+  defp collect_stdout(<<>>, acc), do: acc
+
+  defp collect_stdout(<<marker, _::binary>> = rest, acc) when marker in [0x01, 0x02, 0x03],
+    do: strip_exec_frames(rest, acc)
+
+  defp collect_stdout(<<byte, rest::binary>>, acc),
+    do: collect_stdout(rest, <<acc::binary, byte>>)
+
+  defp skip_frame(<<>>, acc), do: acc
+
+  defp skip_frame(<<marker, _::binary>> = rest, acc) when marker in [0x01, 0x02, 0x03],
+    do: strip_exec_frames(rest, acc)
+
+  defp skip_frame(<<_byte, rest::binary>>, acc), do: skip_frame(rest, acc)
 
   defp parse_checkpoint_response(body) when is_binary(body) do
     # NDJSON — parse last complete line for the checkpoint result
