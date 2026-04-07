@@ -1,17 +1,18 @@
 defmodule Keeper.Seed do
   @moduledoc "Creates and seeds a new terrarium."
 
-  alias Keeper.Sprites
+  alias Keeper.{Sprites, Config}
 
   @bootstrap_dir Path.expand("../../../bootstrap", __DIR__)
   @soul_path Path.expand("../../../seed/soul.md", __DIR__)
   @bootstrap_files ~w(bootstrap.py context.py tools.py requirements.txt)
 
-  def create(name) do
+  def create(name, config \\ Config.new()) do
     with {:ok, _} <- Sprites.create(name),
          :ok <- create_dirs(name),
          :ok <- write_soul(name),
          :ok <- write_bootstrap(name),
+         :ok <- write_config(name, config),
          :ok <- install_deps(name) do
       {:ok, name}
     end
@@ -47,6 +48,15 @@ defmodule Keeper.Seed do
         error -> {:halt, error}
       end
     end)
+  end
+
+  defp write_config(name, config) do
+    yaml = Config.to_bootstrap_yaml(config)
+
+    case Sprites.write_file(name, "/vivarium/.keeper/bootstrap_config.yaml", yaml) do
+      {:ok, _} -> :ok
+      error -> error
+    end
   end
 
   defp install_deps(name) do

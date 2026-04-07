@@ -27,6 +27,24 @@ def load_config() -> dict:
     return DEFAULT_CONFIG
 
 
+USAGE_PATH = "/vivarium/.keeper/breath_usage.yaml"
+
+
+def write_usage(api_calls: int, last_input: int, total_output: int):
+    """Write token usage summary. Best-effort — don't crash if this fails."""
+    try:
+        usage = {
+            "api_calls": api_calls,
+            "input_tokens": last_input,
+            "output_tokens": total_output,
+            "total_tokens": last_input + total_output,
+        }
+        with open(USAGE_PATH, "w") as f:
+            yaml.dump(usage, f)
+    except OSError:
+        pass
+
+
 def main():
     config = load_config()
     api_key = os.environ.get(config["api_key_env"])
@@ -41,6 +59,9 @@ def main():
     context_limit = config["context_limit"]
     negotiation_sent = False
     cutoff_sent = False
+    api_calls = 0
+    total_output_tokens = 0
+    last_input_tokens = 0
 
     while True:
         response = client.messages.create(
@@ -50,6 +71,10 @@ def main():
             messages=messages,
             tools=TOOL_DEFINITIONS,
         )
+
+        api_calls += 1
+        last_input_tokens = response.usage.input_tokens
+        total_output_tokens += response.usage.output_tokens
 
         messages.append({"role": "assistant", "content": response.content})
 
@@ -79,7 +104,7 @@ def main():
             break
 
         # Check context budget using actual token counts from the API
-        tokens_used = response.usage.input_tokens
+        tokens_used = last_input_tokens
         if not cutoff_sent and tokens_used >= context_limit * 0.95:
             tool_results.append({
                 "type": "text",
@@ -107,6 +132,8 @@ def main():
             negotiation_sent = True
 
         messages.append({"role": "user", "content": tool_results})
+
+    write_usage(api_calls, last_input_tokens, total_output_tokens)
 
 
 if __name__ == "__main__":

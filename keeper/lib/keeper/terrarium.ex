@@ -2,23 +2,32 @@ defmodule Keeper.Terrarium do
   @moduledoc "GenServer managing a single terrarium's lifecycle."
   use GenServer
 
-  alias Keeper.{Sprites, Seed, Wake}
+  require Logger
+
+  alias Keeper.{Sprites, Seed, Wake, Budget, Config}
 
   @max_continuations 5
 
   defstruct [
     :name,
+    :config,
+    :budget,
     status: :idle,
     breath_count: 0,
     checkpoint_history: [],
     consecutive_continuations: 0,
-    crash_recovery: false
+    crash_recovery: false,
+    scheduled_wakes: []
   ]
 
   # -- Client API --
 
+  def start_link({name, config}) do
+    GenServer.start_link(__MODULE__, {name, config}, name: via(name))
+  end
+
   def start_link(name) do
-    GenServer.start_link(__MODULE__, name, name: via(name))
+    start_link({name, Config.new()})
   end
 
   def create(name) do
@@ -40,20 +49,24 @@ defmodule Keeper.Terrarium do
   # -- Server callbacks --
 
   @impl true
-  def init(name) do
-    {:ok, %__MODULE__{name: name}}
+  def init({name, config}) do
+    state = %__MODULE__{name: name, config: config, budget: Budget.new()}
+    state = maybe_schedule_heartbeat(state)
+    {:ok, state}
   end
 
+  def init(name), do: init({name, Config.new()})
+
   @impl true
-  def handle_call(:create, _from, %{name: name} = state) do
-    case Seed.create(name) do
+  def handle_call(:create, _from, %{name: name, config: config} = state) do
+    case Seed.create(name, config) do
       {:ok, _} -> {:reply, :ok, %{state | status: :idle}}
       error -> {:reply, error, state}
     end
   end
 
   def handle_call({:wake, message, opts}, _from, state) do
-    state = %{state | status: :breathing}
+    state = %{state | status: :breathing, budget: Budget.maybe_reset(state.budget)}
 
     # If previous breath crashed, flag this wake as crash recovery
     opts =
@@ -63,8 +76,11 @@ defmodule Keeper.Terrarium do
         opts
       end
 
+    opts = inject_budget_opts(opts, state)
+
     case breathe_loop(state, message, opts) do
       {:ok, outbox, state} ->
+        state = handle_outbox_requests(state, outbox)
         {:reply, {:ok, outbox}, %{state | status: :idle}}
 
       {:runaway, state} ->
@@ -96,40 +112,100 @@ defmodule Keeper.Terrarium do
     {:reply, state, state}
   end
 
+  # -- Heartbeat and scheduled wakes --
+
+  @impl true
+  def handle_info(:heartbeat, state) do
+    state = %{state | budget: Budget.maybe_reset(state.budget)}
+    state = maybe_schedule_heartbeat(state)
+
+    if Budget.exhausted?(state.budget, state.config.budget) do
+      Logger.info("[#{state.name}] heartbeat deferred — budget exhausted")
+      {:noreply, state}
+    else
+      Logger.info("[#{state.name}] heartbeat wake")
+      state = %{state | status: :breathing}
+      opts = inject_budget_opts([inbox_type: :heartbeat, from: "system", channel: "cron"], state)
+
+      case breathe_loop(state, "Heartbeat check-in.", opts) do
+        {:ok, outbox, state} ->
+          state = handle_outbox_requests(state, outbox)
+          do_checkpoint(state)
+          {:noreply, %{state | status: :idle}}
+
+        {:runaway, state} ->
+          Logger.warning("[#{state.name}] heartbeat runaway detected")
+          {:noreply, %{state | status: :idle}}
+
+        {:error, reason, state} ->
+          Logger.error("[#{state.name}] heartbeat error: #{inspect(reason)}")
+          {:noreply, %{state | status: :idle}}
+      end
+    end
+  end
+
+  def handle_info({:scheduled_wake, prompt}, state) do
+    state = %{state | budget: Budget.maybe_reset(state.budget)}
+
+    if Budget.exhausted?(state.budget, state.config.budget) do
+      Logger.info("[#{state.name}] scheduled wake deferred — budget exhausted")
+      {:noreply, state}
+    else
+      Logger.info("[#{state.name}] scheduled wake: #{String.slice(prompt, 0..60)}")
+      state = %{state | status: :breathing}
+
+      opts =
+        inject_budget_opts(
+          [inbox_type: :scheduled, from: "system", channel: "scheduled"],
+          state
+        )
+
+      case breathe_loop(state, prompt, opts) do
+        {:ok, outbox, state} ->
+          state = handle_outbox_requests(state, outbox)
+          do_checkpoint(state)
+          {:noreply, %{state | status: :idle}}
+
+        {:runaway, state} ->
+          Logger.warning("[#{state.name}] scheduled wake runaway")
+          {:noreply, %{state | status: :idle}}
+
+        {:error, reason, state} ->
+          Logger.error("[#{state.name}] scheduled wake error: #{inspect(reason)}")
+          {:noreply, %{state | status: :idle}}
+      end
+    end
+  end
+
   # -- Breath loop with continuation support --
 
   defp breathe_loop(state, message, opts) do
     case Wake.breathe(state.name, message, opts) do
-      {:ok, %{type: :continuing}} ->
-        state = %{
-          state
-          | breath_count: state.breath_count + 1,
-            consecutive_continuations: state.consecutive_continuations + 1,
-            crash_recovery: false
-        }
-
-        # Checkpoint between continuation breaths
+      {:ok, %{type: :continuing} = outbox} ->
+        state = record_breath(state, outbox)
+        state = %{state | consecutive_continuations: state.consecutive_continuations + 1}
         do_checkpoint(state)
 
         if state.consecutive_continuations >= @max_continuations do
           {:runaway, state}
         else
-          # Re-wake with continuation inbox
-          breathe_loop(state, "Continuation", Keyword.put(opts, :inbox_type, :continuation))
+          opts = Keyword.put(opts, :inbox_type, :continuation)
+          breathe_loop(state, "Continuation", opts)
         end
 
       {:ok, outbox} ->
-        state = %{
-          state
-          | breath_count: state.breath_count + 1,
-            consecutive_continuations: 0,
-            crash_recovery: false
-        }
-
+        state = record_breath(state, outbox)
+        state = %{state | consecutive_continuations: 0}
         {:ok, outbox, state}
 
+      {:error, {:crash, reason, %{usage: usage, compute_ms: compute_ms}}} ->
+        do_checkpoint(state)
+        tokens = Map.get(usage, "total_tokens", 0)
+        budget = Budget.record(state.budget, tokens, compute_ms)
+        state = %{state | crash_recovery: true, budget: budget}
+        {:error, {:crash, reason}, state}
+
       {:error, {:crash, reason}} ->
-        # Bootstrap crashed — checkpoint whatever exists, flag next wake
         do_checkpoint(state)
         state = %{state | crash_recovery: true}
         {:error, {:crash, reason}, state}
@@ -139,9 +215,85 @@ defmodule Keeper.Terrarium do
     end
   end
 
-  defp do_checkpoint(%{name: name} = _state) do
-    # Best-effort checkpoint between continuations — don't fail the loop
+  defp record_breath(state, outbox) do
+    tokens = outbox |> Map.get(:usage, %{}) |> Map.get("total_tokens", 0)
+    compute_ms = Map.get(outbox, :compute_ms, 0)
+    budget = Budget.record(state.budget, tokens, compute_ms)
+
+    %{
+      state
+      | breath_count: state.breath_count + 1,
+        crash_recovery: false,
+        budget: budget
+    }
+  end
+
+  defp do_checkpoint(%{name: name}) do
     Sprites.checkpoint(name)
+  end
+
+  # -- Budget --
+
+  defp inject_budget_opts(opts, state) do
+    opts
+    |> Keyword.put(:budget, state.budget)
+    |> Keyword.put(:budget_limits, state.config.budget)
+  end
+
+  # -- Heartbeat scheduling --
+
+  defp maybe_schedule_heartbeat(%{config: %{heartbeat_interval_ms: nil}} = state), do: state
+
+  defp maybe_schedule_heartbeat(%{config: %{heartbeat_interval_ms: ms}} = state) do
+    Process.send_after(self(), :heartbeat, ms)
+    state
+  end
+
+  # -- Outbox request handling --
+
+  defp handle_outbox_requests(state, %{raw: raw}) do
+    case YamlElixir.read_from_string(raw) do
+      {:ok, %{"requests" => requests}} when is_list(requests) ->
+        Enum.reduce(requests, state, &handle_request/2)
+
+      _ ->
+        state
+    end
+  end
+
+  defp handle_request(%{"type" => "schedule", "when" => when_str, "prompt" => prompt}, state) do
+    case DateTime.from_iso8601(when_str) do
+      {:ok, target, _} ->
+        delay_ms = max(DateTime.diff(target, DateTime.utc_now(), :millisecond), 0)
+        Process.send_after(self(), {:scheduled_wake, prompt}, delay_ms)
+
+        Logger.info(
+          "[#{state.name}] scheduled wake at #{when_str}: #{String.slice(prompt, 0..60)}"
+        )
+
+        state
+
+      _ ->
+        Logger.warning(
+          "[#{state.name}] ignoring schedule request with bad timestamp: #{when_str}"
+        )
+
+        state
+    end
+  end
+
+  defp handle_request(%{"type" => "credential", "service" => service} = req, state) do
+    reason = Map.get(req, "reason", "(no reason given)")
+
+    Logger.info("[#{state.name}] credential request: #{service} — #{reason}")
+
+    # For now, just log it. Sprint 3+ will route to human for approval.
+    state
+  end
+
+  defp handle_request(req, state) do
+    Logger.debug("[#{state.name}] ignoring unknown request: #{inspect(req)}")
+    state
   end
 
   # -- Registry --

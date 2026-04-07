@@ -1,10 +1,12 @@
 defmodule Keeper do
   @moduledoc "Top-level API for managing terrariums."
 
-  alias Keeper.Terrarium
+  alias Keeper.{Terrarium, Config}
 
-  def create(name) do
-    with {:ok, _pid} <- start_terrarium(name) do
+  def create(name, opts \\ []) do
+    config = Config.new(opts)
+
+    with {:ok, _pid} <- start_terrarium(name, config) do
       Terrarium.create(name)
     end
   end
@@ -21,10 +23,10 @@ defmodule Keeper do
     Terrarium.status(name)
   end
 
-  defp start_terrarium(name) do
+  defp start_terrarium(name, config) do
     DynamicSupervisor.start_child(
       Keeper.TerrariumSupervisor,
-      {Terrarium, name}
+      {Terrarium, {name, config}}
     )
   end
 end

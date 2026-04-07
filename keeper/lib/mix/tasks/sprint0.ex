@@ -62,8 +62,11 @@ defmodule Mix.Tasks.Sprint0 do
     # Status
     status = Keeper.status(name)
 
+    budget = status.budget
+
     IO.puts(
-      "→ Final status: #{status.breath_count} breaths, #{length(status.checkpoint_history)} checkpoints\n"
+      "→ Final status: #{status.breath_count} breaths, #{length(status.checkpoint_history)} checkpoints, " <>
+        "#{budget.tokens_used} tokens, #{budget.compute_ms}ms compute\n"
     )
 
     IO.puts("=== Sprint 0 complete: #{name} ===")

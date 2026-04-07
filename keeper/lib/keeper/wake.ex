@@ -1,25 +1,41 @@
 defmodule Keeper.Wake do
   @moduledoc "Executes one breath cycle: write inbox, run bootstrap, read outbox."
 
-  alias Keeper.Sprites
+  alias Keeper.{Sprites, Budget}
 
   @doc """
-  Execute one breath. Returns {:ok, %{type: atom, raw: string}} or {:error, reason}.
+  Execute one breath. Returns {:ok, %{type: atom, raw: string, usage: map, compute_ms: integer}}
+  or {:error, {:crash, reason}}.
 
   The type is one of :response, :continuing, :request, :silent.
-  On bootstrap failure, returns {:error, {:crash, reason}}.
+  Usage contains token counts from the bootstrap. compute_ms is wall-clock time.
   """
   def breathe(name, message, opts \\ []) do
     api_key = Keyword.get(opts, :api_key, System.get_env("ANTHROPIC_API_KEY"))
+    budget = Keyword.get(opts, :budget)
+    budget_limits = Keyword.get(opts, :budget_limits)
     inbox_yaml = build_inbox(message, opts)
     unix_ts = System.os_time(:second)
 
     with {:ok, _} <- clear_inbox(name),
+         :ok <- maybe_write_budget_status(name, budget, budget_limits),
          {:ok, _} <- Sprites.write_file(name, "/vivarium/inbox/#{unix_ts}.msg", inbox_yaml),
-         {:ok, _} <- run_bootstrap(name, api_key) do
-      read_and_parse_outbox(name)
+         {compute_ms, {:ok, _}} <- time_bootstrap(name, api_key) do
+      case read_and_parse_outbox(name) do
+        {:ok, outbox} ->
+          usage = read_usage(name)
+          {:ok, Map.merge(outbox, %{usage: usage, compute_ms: compute_ms})}
+
+        error ->
+          error
+      end
     else
-      {:error, reason} -> {:error, {:crash, reason}}
+      {compute_ms, {:error, reason}} ->
+        usage = read_usage(name)
+        {:error, {:crash, reason, %{usage: usage, compute_ms: compute_ms}}}
+
+      {:error, reason} ->
+        {:error, {:crash, reason}}
     end
   end
 
@@ -66,6 +82,26 @@ defmodule Keeper.Wake do
       :crash_recovery ->
         crash_recovery_inbox(message)
 
+      :heartbeat ->
+        """
+        type: heartbeat
+        timestamp: "#{ts}"
+        from: system
+        channel: cron
+        content: |
+          #{indent(message, 2)}
+        """
+
+      :scheduled ->
+        """
+        type: scheduled
+        timestamp: "#{ts}"
+        from: system
+        channel: scheduled
+        content: |
+          #{indent(message, 2)}
+        """
+
       _ ->
         """
         type: message
@@ -82,11 +118,42 @@ defmodule Keeper.Wake do
     Sprites.exec(name, "rm -f /vivarium/inbox/*.msg")
   end
 
-  defp run_bootstrap(name, api_key) do
-    Sprites.exec(
-      name,
-      "ANTHROPIC_API_KEY='#{api_key}' python3 /vivarium/bootstrap/bootstrap.py"
-    )
+  defp time_bootstrap(name, api_key) do
+    start = System.monotonic_time(:millisecond)
+
+    result =
+      Sprites.exec(
+        name,
+        "ANTHROPIC_API_KEY='#{api_key}' python3 /vivarium/bootstrap/bootstrap.py"
+      )
+
+    elapsed = System.monotonic_time(:millisecond) - start
+    {elapsed, result}
+  end
+
+  defp maybe_write_budget_status(_name, nil, _limits), do: :ok
+  defp maybe_write_budget_status(_name, _budget, nil), do: :ok
+
+  defp maybe_write_budget_status(name, budget, limits) do
+    yaml = Budget.to_yaml(budget, limits)
+
+    case Sprites.write_file(name, "/vivarium/.keeper/budget_status", yaml) do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  defp read_usage(name) do
+    case Sprites.read_file(name, "/vivarium/.keeper/breath_usage.yaml") do
+      {:ok, raw} ->
+        case YamlElixir.read_from_string(raw) do
+          {:ok, data} -> data
+          _ -> %{}
+        end
+
+      _ ->
+        %{}
+    end
   end
 
   defp read_and_parse_outbox(name) do
