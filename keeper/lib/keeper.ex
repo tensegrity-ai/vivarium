@@ -45,6 +45,10 @@ defmodule Keeper do
     Terrarium.status(name)
   end
 
+  def set_model(name, model) do
+    Terrarium.set_model(name, model)
+  end
+
   defp start_terrarium(name, config) do
     DynamicSupervisor.start_child(
       Keeper.TerrariumSupervisor,

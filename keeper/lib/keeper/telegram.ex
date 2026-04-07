@@ -126,6 +126,7 @@ defmodule Keeper.Telegram do
       "diff" -> cmd_diff(chat_id, state)
       "restore" -> cmd_restore(args, chat_id, state)
       "destroy" -> cmd_destroy(args, chat_id, state)
+      "model" -> cmd_model(args, chat_id, state)
       "help" -> cmd_help(chat_id, state)
       _ -> send_and_return(state, chat_id, "Unknown command: /#{command}\nTry /help")
     end
@@ -345,6 +346,30 @@ defmodule Keeper.Telegram do
     end
   end
 
+  defp cmd_model(args, chat_id, state) do
+    with_terrarium(state, chat_id, fn name ->
+      model = String.trim(args)
+
+      if model == "" do
+        case Keeper.status(name) do
+          %{config: %{model: current}} ->
+            send_and_return(state, chat_id, "Model: `#{current}`")
+
+          _ ->
+            send_and_return(state, chat_id, "Could not read config.")
+        end
+      else
+        case Keeper.set_model(name, model) do
+          :ok ->
+            send_and_return(state, chat_id, "Model set to `#{model}`")
+
+          {:error, reason} ->
+            send_and_return(state, chat_id, "Failed: #{inspect(reason)}")
+        end
+      end
+    end)
+  end
+
   defp cmd_help(chat_id, state) do
     msg = """
     *Vivarium Bot*
@@ -359,6 +384,7 @@ defmodule Keeper.Telegram do
     /diff — show last breath's changes
     /checkpoint — manual git commit
     /snapshot — full VM snapshot (disaster recovery)
+    /model [name] — show or set the LLM model
     /restore <ref> — restore to a commit
     /help — this message
 

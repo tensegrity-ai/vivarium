@@ -50,6 +50,10 @@ defmodule Keeper.Terrarium do
     GenServer.call(via(name), :status)
   end
 
+  def set_model(name, model) do
+    GenServer.call(via(name), {:set_model, model})
+  end
+
   # -- Server callbacks --
 
   @impl true
@@ -118,6 +122,16 @@ defmodule Keeper.Terrarium do
 
   def handle_call(:status, _from, state) do
     {:reply, state, state}
+  end
+
+  def handle_call({:set_model, model}, _from, %{name: name, config: config} = state) do
+    config = %{config | model: model}
+    json = Config.to_bootstrap_json(config)
+
+    case Sprites.write_file(name, "/vivarium/.keeper/bootstrap_config.json", json) do
+      {:ok, _} -> {:reply, :ok, %{state | config: config}}
+      error -> {:reply, error, state}
+    end
   end
 
   # -- Heartbeat and scheduled wakes --
