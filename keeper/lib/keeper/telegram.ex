@@ -190,20 +190,23 @@ defmodule Keeper.Telegram do
   end
 
   defp cmd_list(chat_id, state) do
-    case Registry.select(Keeper.Registry, [{{:"$1", :_, :_}, [], [:"$1"]}]) do
-      [] ->
-        send_and_return(state, chat_id, "No terrariums running.")
+    case Keeper.Sprites.list() do
+      {:ok, []} ->
+        send_and_return(state, chat_id, "No sprites found.")
 
-      names ->
+      {:ok, sprites} ->
         active = state.chats[chat_id]
 
         lines =
-          Enum.map(names, fn name ->
+          Enum.map(sprites, fn %{name: name, status: status} ->
             marker = if name == active, do: " ← active", else: ""
-            "• `#{name}`#{marker}"
+            "• `#{name}` (#{status})#{marker}"
           end)
 
-        send_and_return(state, chat_id, "Terrariums:\n" <> Enum.join(lines, "\n"))
+        send_and_return(state, chat_id, "Sprites:\n" <> Enum.join(lines, "\n"))
+
+      {:error, reason} ->
+        send_and_return(state, chat_id, "Failed to list sprites: #{inspect(reason)}")
     end
   end
 

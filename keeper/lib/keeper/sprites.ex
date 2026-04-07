@@ -15,6 +15,19 @@ defmodule Keeper.Sprites do
     end
   end
 
+  def list do
+    case get("/v1/sprites") do
+      {:ok, %{status: 200, body: %{"sprites" => sprites}}} ->
+        {:ok, Enum.map(sprites, fn s -> %{name: s["name"], status: s["status"]} end)}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, "HTTP #{status}: #{body_string(body)}"}
+
+      {:error, reason} ->
+        {:error, inspect(reason)}
+    end
+  end
+
   def exec(name, command, opts \\ []) do
     env_params =
       opts |> Keyword.get(:env, []) |> Enum.map(fn {k, v} -> {"env", "#{k}=#{v}"} end)
