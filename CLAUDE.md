@@ -59,44 +59,47 @@ Terrarium (Fly.io Sprite VM)
 - Tool-discovery from /vivarium/tools/ headers (v2 — design accommodates it, don't build it yet)
 - Provider abstraction layer (start with one provider, switch later)
 
-## File Structure (Target)
+## File Structure
 
 ```
 vivarium/
-├── CLAUDE.md              # This file
-├── DESIGN.md              # Philosophy and architecture (the big doc)
-├── PLANS/                 # Implementation guides
-│   ├── 00-sprint.md       # First sprint scope and milestones
-│   ├── 01-bootstrap.md    # Bootstrap implementation guide
-│   ├── 02-keeper.md       # Keeper implementation guide
-│   └── 03-protocol.md     # Protocol specification
-├── bootstrap/             # Python bootstrap
-│   ├── bootstrap.py       # The agent loop (~200 lines)
-│   ├── tools.py           # Tool definitions (bash, read, write, edit)
-│   ├── context.py         # Handoff reading, prompt construction
-│   └── requirements.txt
-├── keeper/                # Elixir keeper
+├── CLAUDE.md                  # This file
+├── DESIGN.md                  # Philosophy and architecture
+├── PLANS/
+│   ├── 00-sprint.md           # Sprint 0: first breath (done)
+│   ├── 01-sprint.md           # Sprint 1: multi-breath (done)
+│   ├── 02-sprint.md           # Sprint 2: budget & heartbeat (done)
+│   ├── 01-bootstrap.md        # Bootstrap implementation guide
+│   ├── 02-keeper.md           # Keeper implementation guide
+│   ├── 03-protocol.md         # Protocol specification
+│   └── tech-debt.md           # Known issues and future work
+├── bootstrap/                 # Python bootstrap (~400 lines)
+│   ├── bootstrap.py           # Agent loop with token tracking + negotiation
+│   ├── tools.py               # Four tools (bash, read, write, edit)
+│   ├── context.py             # Prompt assembly (continuation/crash-aware)
+│   └── requirements.txt       # anthropic, pyyaml
+├── keeper/                    # Elixir keeper (~500 lines)
 │   ├── mix.exs
 │   ├── lib/
-│   │   ├── keeper.ex              # Application entry
+│   │   ├── keeper.ex              # Top-level API
+│   │   ├── keeper/application.ex  # OTP app + supervision tree
 │   │   ├── keeper/terrarium.ex    # GenServer per terrarium
-│   │   ├── keeper/scheduler.ex    # Heartbeat and wake scheduling
-│   │   ├── keeper/sprites.ex      # Sprites API client
-│   │   ├── keeper/budget.ex       # Budget tracking and enforcement
-│   │   └── keeper/router.ex       # Message routing (v2)
-│   └── config/
-│       └── config.exs
-├── seed/                  # Default seed files for new terrariums
-│   ├── soul.md            # Default soul document
-│   └── bootstrap.py       # Canonical bootstrap (keeper copies this in)
-└── README.md
+│   │   ├── keeper/sprites.ex      # Sprites CLI wrapper
+│   │   ├── keeper/seed.ex         # Terrarium creation + seeding
+│   │   ├── keeper/wake.ex         # Breath execution + outbox parsing
+│   │   ├── keeper/budget.ex       # Budget tracking + enforcement
+│   │   ├── keeper/config.ex       # Per-terrarium configuration
+│   │   └── mix/tasks/sprint0.ex   # Sprint 0 demo task
+│   └── test/
+├── seed/
+│   └── soul.md                # Default agent soul document
 ```
 
 ## Environment
 
-- `ANTHROPIC_API_KEY` — available in env, used by the bootstrap inside the Sprite
-- `FLY_API_TOKEN` — available in env, used by the keeper and `fly` CLI
-- `fly` CLI is installed and authenticated
+- `ANTHROPIC_API_KEY` — available in env, injected by keeper into Sprite at wake time
+- `FLY_API_TOKEN` — available in env, used by the keeper via `sprite` CLI
+- `sprite` CLI is installed and authenticated (org: `tensegrity-systems`)
 
 ## Development Workflow
 
