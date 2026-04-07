@@ -24,6 +24,7 @@ defmodule Keeper.Git do
     script = """
     cd #{@vivarium_dir} && \
     git init && \
+    git config --global --add safe.directory #{@vivarium_dir} && \
     git config user.name '#{@author_name}' && \
     git config user.email '#{@author_email}' && \
     cat > .gitignore <<'VIVARIUM_GITIGNORE'

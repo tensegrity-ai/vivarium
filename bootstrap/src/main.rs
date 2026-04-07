@@ -99,9 +99,6 @@ fn run() -> Result<(), String> {
     let mut last_input_tokens: u64 = 0;
 
     loop {
-        // Place cache breakpoint on last assistant message (if any)
-        set_assistant_cache_breakpoint(&mut messages);
-
         let request = Request {
             model: &config.model,
             max_tokens: config.max_response_tokens,
@@ -200,22 +197,3 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-/// Set cache_control on the last content block of the most recent assistant message.
-/// This makes the entire conversation prefix up to that point cacheable.
-fn set_assistant_cache_breakpoint(messages: &mut [serde_json::Value]) {
-    for msg in messages.iter_mut().rev() {
-        if msg.get("role").and_then(|v| v.as_str()) == Some("assistant") {
-            if let Some(content) = msg.get_mut("content").and_then(|v| v.as_array_mut()) {
-                if let Some(last_block) = content.last_mut() {
-                    if let Some(obj) = last_block.as_object_mut() {
-                        obj.insert(
-                            "cache_control".to_string(),
-                            serde_json::json!({"type": "ephemeral"}),
-                        );
-                    }
-                }
-            }
-            break;
-        }
-    }
-}

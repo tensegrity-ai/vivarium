@@ -103,27 +103,14 @@ pub fn build_system_prompt() -> (Vec<serde_json::Value>, String) {
         parts.push(format!("[WARNINGS]\n{formatted}"));
     }
 
-    // Build system blocks — each part is a text block.
-    // Cache breakpoint on the last block (the entire system prompt is stable within a breath).
-    let mut system_blocks: Vec<serde_json::Value> = parts
-        .iter()
-        .map(|text| {
-            serde_json::json!({
-                "type": "text",
-                "text": text,
-            })
-        })
-        .collect();
-
-    // Set cache_control on the last system block
-    if let Some(last) = system_blocks.last_mut() {
-        if let Some(obj) = last.as_object_mut() {
-            obj.insert(
-                "cache_control".to_string(),
-                serde_json::json!({"type": "ephemeral"}),
-            );
-        }
-    }
+    // Single system block with cache breakpoint.
+    // The entire system prompt is stable within a breath — one block, one cache marker.
+    let system_text = parts.join("\n\n");
+    let system_blocks: Vec<serde_json::Value> = vec![serde_json::json!({
+        "type": "text",
+        "text": system_text,
+        "cache_control": {"type": "ephemeral"},
+    })];
 
     let user_message = inbox_raw.unwrap_or_else(|| "Heartbeat — no inbox messages.".to_string());
     (system_blocks, user_message)
