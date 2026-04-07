@@ -16,8 +16,9 @@ RUN mix deps.compile
 
 COPY keeper/config config
 COPY keeper/lib lib
-COPY seed seed
-COPY bootstrap bootstrap
+# Place at /seed and /bootstrap to match Path.expand("../../../seed", "/app/lib/keeper")
+COPY seed /seed
+COPY bootstrap /bootstrap
 
 RUN mix compile
 RUN mix release
