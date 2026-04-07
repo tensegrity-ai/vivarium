@@ -25,6 +25,7 @@ def build_system_prompt() -> tuple[str, str]:
 
     is_continuation = inbox_meta.get("type") == "continuation" or inbox_meta.get("context", {}).get("continuation", False)
     is_crash_recovery = inbox_meta.get("context", {}).get("crash_recovery", False)
+    is_heartbeat = inbox_meta.get("type") == "heartbeat"
 
     # --- system prompt ---
     parts = [_SYSTEM_PREAMBLE]
@@ -32,7 +33,15 @@ def build_system_prompt() -> tuple[str, str]:
     if soul:
         parts.append(f"[SOUL]\n{soul}")
 
-    if is_crash_recovery:
+    if is_heartbeat:
+        parts.append(
+            "[HEARTBEAT]\n"
+            "No one is asking you for anything right now. You have a full breath.\n"
+            "Check on anything that needs checking. Then do what interests you."
+        )
+        if handoff:
+            parts.append(f"[HANDOFF — your note from last breath]\n{handoff}")
+    elif is_crash_recovery:
         parts.append(
             "[CRASH RECOVERY]\n"
             "Your last breath was interrupted before you could write a "

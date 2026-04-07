@@ -145,7 +145,11 @@ defmodule Keeper.Terrarium do
         opts =
           inject_budget_opts([inbox_type: :heartbeat, from: "system", channel: "cron"], state)
 
-        case breathe_loop(state, "Heartbeat check-in.", opts) do
+        case breathe_loop(
+               state,
+               "No one is asking you for anything right now. You have a full breath.",
+               opts
+             ) do
           {:ok, outbox, state} ->
             state = handle_outbox_requests(state, outbox)
             {:noreply, %{state | status: :idle}}
