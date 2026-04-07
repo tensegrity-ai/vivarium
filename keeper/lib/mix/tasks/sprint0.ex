@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Sprint0 do
-  @moduledoc "Sprint 0 proof: seed → two breaths → two checkpoints."
+  @moduledoc "Sprint 0 proof: seed → two breaths → git history."
   use Mix.Task
 
   @shortdoc "Run the Sprint 0 two-breath demo"
@@ -14,7 +14,7 @@ defmodule Mix.Tasks.Sprint0 do
     IO.puts("→ Creating and seeding terrarium...")
 
     case Keeper.create(name) do
-      :ok -> IO.puts("  ✓ Seeded\n")
+      :ok -> IO.puts("  ✓ Seeded (with git init)\n")
       {:error, e} -> abort("Seed failed: #{e}")
     end
 
@@ -28,13 +28,6 @@ defmodule Mix.Tasks.Sprint0 do
 
       {:error, e} ->
         abort("First breath failed: #{inspect(e)}")
-    end
-
-    IO.puts("→ Checkpointing...")
-
-    case Keeper.checkpoint(name) do
-      {:ok, out} -> IO.puts("  ✓ #{out}\n")
-      {:error, e} -> abort("Checkpoint failed: #{e}")
     end
 
     # Step 3: Second breath
@@ -52,22 +45,39 @@ defmodule Mix.Tasks.Sprint0 do
         abort("Second breath failed: #{inspect(e)}")
     end
 
-    IO.puts("→ Checkpointing...")
-
-    case Keeper.checkpoint(name) do
-      {:ok, out} -> IO.puts("  ✓ #{out}\n")
-      {:error, e} -> abort("Checkpoint failed: #{e}")
-    end
-
     # Status
     status = Keeper.status(name)
 
-    budget = status.budget
-
     IO.puts(
-      "→ Final status: #{status.breath_count} breaths, #{length(status.checkpoint_history)} checkpoints, " <>
-        "#{budget.tokens_used} tokens, #{budget.compute_ms}ms compute\n"
+      "→ Status: #{status.breath_count} breaths, " <>
+        "#{status.budget.tokens_used} tokens, #{status.budget.compute_ms}ms compute\n"
     )
+
+    # Git history
+    case Keeper.history(name) do
+      {:ok, history} ->
+        IO.puts("→ Git history (#{length(history)} commits):")
+
+        Enum.each(history, fn meta ->
+          IO.puts("  #{meta.id} breath #{meta.breath_number}: #{meta.outbox_summary}")
+        end)
+
+        IO.puts("")
+
+      {:error, e} ->
+        IO.puts("  ⚠ Could not read git history: #{inspect(e)}\n")
+    end
+
+    # Last diff
+    case Keeper.Git.diff_last(name) do
+      {:ok, diff} when diff != "" ->
+        IO.puts("→ Last breath diff:")
+        IO.puts(indent(diff))
+        IO.puts("")
+
+      _ ->
+        :ok
+    end
 
     IO.puts("=== Sprint 0 complete: #{name} ===")
   end

@@ -4,7 +4,7 @@ defmodule Keeper.Terrarium do
 
   require Logger
 
-  alias Keeper.{Sprites, Seed, Wake, Budget, Config, CheckpointMeta}
+  alias Keeper.{Sprites, Seed, Wake, Budget, Config, Git}
 
   @max_continuations 5
 
@@ -15,7 +15,6 @@ defmodule Keeper.Terrarium do
     :last_breath_at,
     status: :idle,
     breath_count: 0,
-    checkpoint_history: [],
     consecutive_continuations: 0,
     crash_recovery: false,
     scheduled_wakes: []
@@ -41,6 +40,10 @@ defmodule Keeper.Terrarium do
 
   def checkpoint(name) do
     GenServer.call(via(name), :checkpoint, 60_000)
+  end
+
+  def snapshot(name) do
+    GenServer.call(via(name), :snapshot, 120_000)
   end
 
   def status(name) do
@@ -93,15 +96,22 @@ defmodule Keeper.Terrarium do
   end
 
   def handle_call({:checkpoint, attrs}, _from, state) do
-    case do_checkpoint(state, attrs) do
-      {:ok, meta, state} -> {:reply, {:ok, meta}, state}
+    case do_git_commit(state, attrs) do
+      {:ok, meta} -> {:reply, {:ok, meta}, state}
       error -> {:reply, error, state}
     end
   end
 
   def handle_call(:checkpoint, _from, state) do
-    case do_checkpoint(state, trigger: :message) do
-      {:ok, meta, state} -> {:reply, {:ok, meta}, state}
+    case do_git_commit(state, trigger: :message) do
+      {:ok, meta} -> {:reply, {:ok, meta}, state}
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call(:snapshot, _from, %{name: name} = state) do
+    case Sprites.checkpoint(name) do
+      {:ok, result} -> {:reply, {:ok, result}, state}
       error -> {:reply, error, state}
     end
   end
@@ -200,8 +210,8 @@ defmodule Keeper.Terrarium do
           outbox_summary: extract_summary(outbox)
         ]
 
-        case do_checkpoint(state, checkpoint_attrs) do
-          {:ok, _meta, state} ->
+        case do_git_commit(state, checkpoint_attrs) do
+          {:ok, _meta} ->
             if state.consecutive_continuations >= @max_continuations do
               {:runaway, state}
             else
@@ -237,8 +247,8 @@ defmodule Keeper.Terrarium do
         ]
 
         state =
-          case do_checkpoint(state, checkpoint_attrs) do
-            {:ok, _meta, state} -> state
+          case do_git_commit(state, checkpoint_attrs) do
+            {:ok, _meta} -> state
             _ -> state
           end
 
@@ -253,8 +263,8 @@ defmodule Keeper.Terrarium do
         ]
 
         state =
-          case do_checkpoint(state, crash_attrs) do
-            {:ok, _meta, state} -> state
+          case do_git_commit(state, crash_attrs) do
+            {:ok, _meta} -> state
             _ -> state
           end
 
@@ -265,8 +275,8 @@ defmodule Keeper.Terrarium do
 
       {:error, {:crash, reason}} ->
         state =
-          case do_checkpoint(state, trigger: :crash, breath_number: state.breath_count) do
-            {:ok, _meta, state} -> state
+          case do_git_commit(state, trigger: :crash, breath_number: state.breath_count) do
+            {:ok, _meta} -> state
             _ -> state
           end
 
@@ -292,18 +302,9 @@ defmodule Keeper.Terrarium do
     }
   end
 
-  defp do_checkpoint(state, attrs) do
+  defp do_git_commit(state, attrs) do
     attrs = Keyword.put_new(attrs, :breath_number, state.breath_count)
-
-    case Sprites.checkpoint(state.name) do
-      {:ok, result} ->
-        meta = CheckpointMeta.new(result, attrs)
-        state = %{state | checkpoint_history: [meta | state.checkpoint_history]}
-        {:ok, meta, state}
-
-      error ->
-        error
-    end
+    Git.commit(state.name, attrs)
   end
 
   # -- Budget --

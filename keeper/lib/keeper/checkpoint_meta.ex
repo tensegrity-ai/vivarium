@@ -1,5 +1,5 @@
 defmodule Keeper.CheckpointMeta do
-  @moduledoc "Structured metadata for a terrarium checkpoint."
+  @moduledoc "Structured metadata for a terrarium checkpoint (git commit)."
 
   defstruct [
     :id,
@@ -17,7 +17,7 @@ defmodule Keeper.CheckpointMeta do
 
   @type t :: %__MODULE__{
           id: String.t() | nil,
-          timestamp: DateTime.t(),
+          timestamp: DateTime.t() | nil,
           trigger: :message | :heartbeat | :scheduled | :continuation | :crash,
           breath_number: non_neg_integer(),
           tokens_used: non_neg_integer(),
@@ -29,10 +29,10 @@ defmodule Keeper.CheckpointMeta do
           branch_parent: String.t() | nil
         }
 
-  @doc "Build a CheckpointMeta from checkpoint result and breath context."
-  def new(checkpoint_result, attrs) do
+  @doc "Build a CheckpointMeta from a git commit hash and breath attributes."
+  def new(commit_hash, attrs) do
     %__MODULE__{
-      id: extract_id(checkpoint_result),
+      id: commit_hash,
       timestamp: DateTime.utc_now(),
       trigger: Keyword.get(attrs, :trigger, :message),
       breath_number: Keyword.get(attrs, :breath_number, 0),
@@ -42,18 +42,5 @@ defmodule Keeper.CheckpointMeta do
       outbox_summary: Keyword.get(attrs, :outbox_summary),
       comment: Keyword.get(attrs, :comment)
     }
-  end
-
-  defp extract_id(%{"id" => id}), do: id
-  defp extract_id(%{"version" => v}), do: v
-  defp extract_id(str) when is_binary(str), do: parse_id_from_output(str)
-  defp extract_id(_), do: nil
-
-  defp parse_id_from_output(output) do
-    # CLI output often contains "Created checkpoint v3" or similar
-    case Regex.run(~r/\b(v\d+|cp_[a-zA-Z0-9]+)\b/, output) do
-      [_, id] -> id
-      _ -> output
-    end
   end
 end

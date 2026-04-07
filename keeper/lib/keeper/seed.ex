@@ -1,7 +1,7 @@
 defmodule Keeper.Seed do
   @moduledoc "Creates and seeds a new terrarium."
 
-  alias Keeper.{Sprites, Config}
+  alias Keeper.{Sprites, Config, Git}
 
   @bootstrap_dir Path.expand("../../../bootstrap", __DIR__)
   @soul_path Path.expand("../../../seed/soul.md", __DIR__)
@@ -13,7 +13,8 @@ defmodule Keeper.Seed do
          :ok <- write_soul(name),
          :ok <- write_bootstrap(name),
          :ok <- write_config(name, config),
-         :ok <- install_deps(name) do
+         :ok <- install_deps(name),
+         :ok <- Git.init(name) do
       {:ok, name}
     end
   end

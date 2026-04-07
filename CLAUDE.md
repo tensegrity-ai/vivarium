@@ -45,7 +45,7 @@ Terrarium (Fly.io Sprite VM)
 
 **Multi-breath as natural extension.** Tasks that exceed one context window produce a continuation handoff and immediately re-wake. The 80% negotiation gives the agent agency over when to hand off. The keeper enforces runaway protection.
 
-**Checkpoint everything.** Every breath produces a checkpoint. The keeper manages retention. Branching is native. Restore is the recovery mechanism for everything from corruption to experimentation.
+**Git is the checkpoint system.** Every breath produces a git commit inside `/vivarium/`. Diffs show what changed. Branching is `git checkout -b`. Restore is `git reset --hard`. Sprites checkpoints (full VM snapshots) are reserved for disaster recovery. The agent can inspect its own history via `git log`.
 
 **Keeper never enters the terrarium.** All interaction through Sprites API exec(). Credentials never enter the Sprite as long-lived secrets. The VM boundary is the security boundary.
 
@@ -85,11 +85,12 @@ vivarium/
 │   │   ├── keeper/application.ex  # OTP app + supervision tree
 │   │   ├── keeper/terrarium.ex    # GenServer per terrarium
 │   │   ├── keeper/sprites.ex          # Sprites HTTP API client (CLI fallback)
-│   │   ├── keeper/seed.ex             # Terrarium creation + seeding
+│   │   ├── keeper/git.ex              # Git operations via Sprites.exec
+│   │   ├── keeper/seed.ex             # Terrarium creation + seeding (incl git init)
 │   │   ├── keeper/wake.ex             # Breath execution + outbox parsing
 │   │   ├── keeper/budget.ex           # Budget tracking + enforcement
 │   │   ├── keeper/config.ex           # Per-terrarium configuration
-│   │   ├── keeper/checkpoint_meta.ex  # Checkpoint metadata struct
+│   │   ├── keeper/checkpoint_meta.ex  # Git commit metadata struct
 │   │   └── mix/tasks/sprint0.ex       # Sprint 0 demo task
 │   └── test/
 ├── seed/
