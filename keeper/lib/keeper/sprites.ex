@@ -149,28 +149,23 @@ defmodule Keeper.Sprites do
     Application.get_env(:keeper, :sprites_org, "tensegrity-systems")
   end
 
-  defp client(opts) do
+  defp client do
     Req.new(
-      [
-        base_url: @base_url,
-        headers: [{"authorization", "Bearer #{token()}"}]
-      ] ++ opts
+      base_url: @base_url,
+      headers: [{"authorization", "Bearer #{token()}"}]
     )
   end
 
   defp get(path, opts \\ []) do
-    {req_opts, _} = Keyword.split(opts, [:params, :headers, :receive_timeout])
-    Req.get(client(req_opts), url: path)
+    Req.get(client(), [url: path] ++ opts)
   end
 
   defp post(path, opts) do
-    {req_opts, _} = Keyword.split(opts, [:json, :body, :params, :headers, :receive_timeout])
-    Req.post(client(req_opts), url: path)
+    Req.post(client(), [url: path] ++ opts)
   end
 
   defp request(method, path, opts \\ []) do
-    {req_opts, _} = Keyword.split(opts, [:json, :body, :params, :headers, :receive_timeout])
-    Req.request(client(req_opts), method: method, url: path)
+    Req.request(client(), [method: method, url: path] ++ opts)
   end
 
   defp extract_exec_output(body) when is_binary(body), do: String.trim(body)
