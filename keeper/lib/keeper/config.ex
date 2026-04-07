@@ -4,7 +4,7 @@ defmodule Keeper.Config do
   defstruct model: "claude-sonnet-4-20250514",
             context_limit: 200_000,
             max_response_tokens: 16_384,
-            heartbeat_interval_ms: nil,
+            heartbeat_interval_ms: :timer.minutes(30),
             budget: %{
               daily_tokens: 500_000,
               daily_breaths: 30,
